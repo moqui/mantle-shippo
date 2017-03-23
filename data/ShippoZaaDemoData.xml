@@ -16,8 +16,13 @@ along with this software (see the LICENSE.md file). If not, see
     <mantle.shipment.carrier.ShippingGatewayConfig shippingGatewayConfigId="SHIPPO_DEMO"
             shippingGatewayTypeEnumId="ShGtwyShippo" description="Shippo API Demo"
             getOrderRateServiceName="mantle.shippo.ShippoServices.get#OrderShippingRate"
-            validateAddressServiceName="mantle.shippo.ShippoServices.validate#PostalAddress"/>
-    <!-- set your Shippo API token (test or live) with a record like this -->
-    <mantle.shipment.carrier.ShippingGatewayOption shippingGatewayConfigId="SHIPPO_DEMO"
-            optionEnumId="SgoApiToken" optionValue=""/>
+            validateAddressServiceName="mantle.shippo.ShippoServices.validate#PostalAddress">
+        <!-- set your Shippo Account IDs for carriers with records like these -->
+        <carriers carrierPartyId="UPS" gatewayAccountId=""/>
+        <carriers carrierPartyId="FedEx" gatewayAccountId=""/>
+        <carriers carrierPartyId="DHLX" gatewayAccountId="shippo_dhlexpress_account"/>
+        <carriers carrierPartyId="USPS" gatewayAccountId="shippo_usps_account"/>
+        <!-- set your Shippo API token (test or live) with a record like this -->
+        <options optionEnumId="SgoApiToken" optionValue=""/>
+    </mantle.shipment.carrier.ShippingGatewayConfig>
 </entity-facade-xml>
