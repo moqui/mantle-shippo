@@ -79,11 +79,19 @@ along with this software (see the LICENSE.md file). If not, see
 
             <!-- call update#PartyPostalAddress for cleansed address -->
             <if condition="'VALIDATOR'.equals(responseMap.object_source) &amp;&amp; partyId">
+                <set field="stateProvinceGeoId" from="postalAddress.stateProvinceGeoId"/>
+                <if condition="postalAddress.countryGeoId &amp;&amp; responseMap.state">
+                    <entity-find entity-name="moqui.basic.GeoAssocAndToDetail" list="stateGeoList">
+                        <econdition field-name="geoId" from="postalAddress.countryGeoId"/>
+                        <econdition field-name="geoCodeAlpha2" from="responseMap.state"/>
+                    </entity-find>
+                    <if condition="stateGeoList"><set field="stateProvinceGeoId" from="stateGeoList[0].toGeoId"/></if>
+                </if>
                 <service-call name="mantle.party.ContactServices.update#PartyPostalAddress" out-map="paOut"
                         in-map="[partyId:partyId, contactMechId:contactMechId,
                             toName:(responseMap.company ? responseMap.company : responseMap.name), attnName:(responseMap.company ? responseMap.name : null),
                             address1:((responseMap.street_no ? responseMap.street_no + ' ' : '') + responseMap.street1),
-                            address2:responseMap.street2, unitNumber:null, city:responseMap.city,
+                            address2:responseMap.street2, unitNumber:null, city:responseMap.city, stateProvinceGeoId:stateProvinceGeoId,
                             postalCode:(responseMap.zip.contains('-') ? responseMap.zip.substring(0, responseMap.zip.indexOf('-')) : responseMap.zip),
                             postalCodeExt:(responseMap.zip.contains('-') ? responseMap.zip.substring(responseMap.zip.indexOf('-') + 1) : ''),
                             commercial:(responseMap.is_residential != null &amp;&amp; !responseMap.is_residential ? 'Y' : 'N')]"/>
