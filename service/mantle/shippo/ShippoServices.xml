@@ -1,0 +1,195 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+This software is in the public domain under CC0 1.0 Universal plus a 
+Grant of Patent License.
+
+To the extent possible under law, the author(s) have dedicated all
+copyright and related and neighboring rights to this software to the
+public domain worldwide. This software is distributed without any
+warranty.
+
+You should have received a copy of the CC0 Public Domain Dedication
+along with this software (see the LICENSE.md file). If not, see
+<http://creativecommons.org/publicdomain/zero/1.0/>.
+-->
+<services xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/service-definition-2.0.xsd">
+    <service verb="get" noun="ShippingRate">
+        <implements service="mantle.shipment.CarrierServices.get#ShippingRate"/>
+        <actions>
+            <!-- TODO -->
+        </actions>
+    </service>
+    <service verb="request" noun="ShippingLabels">
+        <implements service="mantle.shipment.CarrierServices.request#ShippingLabels"/>
+        <actions>
+            <!-- TODO -->
+        </actions>
+    </service>
+
+    <service verb="void" noun="ShippingLabels">
+        <implements service="mantle.shipment.CarrierServices.void#ShippingLabels"/>
+        <actions>
+            <!-- TODO -->
+        </actions>
+    </service>
+    <service verb="track" noun="ShippingLabels">
+        <implements service="mantle.shipment.CarrierServices.track#ShippingLabels"/>
+        <actions>
+            <!-- TODO -->
+        </actions>
+    </service>
+
+    <service verb="validate" noun="PostalAddress">
+        <implements service="mantle.shipment.CarrierServices.validate#ShippingPostalAddress"/>
+        <actions>
+            <entity-find-one entity-name="mantle.shipment.carrier.ShippingGatewayOption" value-field="apiTokenOpt">
+                <field-map field-name="shippingGatewayConfigId"/><field-map field-name="optionEnumId" value="SgoApiToken"/></entity-find-one>
+            <set field="apiToken" from="apiTokenOpt?.optionValue"/>
+            <if condition="!apiToken"><log level="warn" message="Shipping gateway ${shippingGatewayConfigId} has no SgoApiToken, not validating address"/><return/></if>
+
+            <entity-find-one entity-name="mantle.party.contact.PostalAddress" value-field="postalAddress"/>
+            <if condition="postalAddress == null"><return/></if>
+
+            <service-call name="mantle.shippo.ShippoServices.get#AddressMap" out-map="addrOut"
+                    in-map="[postalAddress:postalAddress, partyId:partyId]"/>
+            <set field="addressMap" from="addrOut.addressMap"/>
+
+            <set field="addressMap.validate" from="true"/>
+            <set field="addressMap.async" from="false"/>
+
+            <!-- <log level="warn" message="Shippo validate address ${contactMechId} request:\n${addressMap}"/> -->
+
+            <script><![CDATA[
+                import org.moqui.util.RestClient
+                RestClient restClient = ec.service.rest().method(RestClient.POST).addHeader("Authorization", "ShippoToken ${apiToken}")
+                        .addHeader("Content-Type", "application/json").jsonObject(addressMap)
+                restClient.uri().protocol("https").host("api.goshippo.com").port(443).path("addresses").build()
+                RestClient.RestResponse restResponse = restClient.call()
+                if (restResponse.statusCode < 200 || restResponse.statusCode >= 300) {
+                    // based on code in Shippo Java client will return error message in plain text body
+                    String errMsg = restResponse.text()
+                    ec.logger.error("Shippo error response (${restResponse.statusCode}): ${errMsg}")
+                    ec.message.addError(errMsg)
+                    return
+                }
+                responseMap = restResponse.jsonObject()
+            ]]></script>
+
+            <!-- <log level="warn" message="Shippo validate address ${contactMechId} response: ${responseMap}"/> -->
+
+            <!-- call update#PartyPostalAddress for cleansed address -->
+            <if condition="'VALIDATOR'.equals(responseMap.object_source) &amp;&amp; partyId">
+                <service-call name="mantle.party.ContactServices.update#PartyPostalAddress" out-map="paOut"
+                        in-map="[partyId:partyId, contactMechId:contactMechId,
+                            toName:(responseMap.company ? responseMap.company : responseMap.name), attnName:(responseMap.company ? responseMap.name : null),
+                            address1:((responseMap.street_no ? responseMap.street_no + ' ' : '') + responseMap.street1),
+                            address2:responseMap.street2, unitNumber:null, city:responseMap.city,
+                            postalCode:(responseMap.zip.contains('-') ? responseMap.zip.substring(0, responseMap.zip.indexOf('-')) : responseMap.zip),
+                            postalCodeExt:(responseMap.zip.contains('-') ? responseMap.zip.substring(responseMap.zip.indexOf('-') + 1) : ''),
+                            commercial:(responseMap.is_residential != null &amp;&amp; !responseMap.is_residential ? 'Y' : 'N')]"/>
+                <set field="contactMechId" from="paOut.contactMechId"/>
+                <entity-find-one entity-name="mantle.party.contact.PostalAddress" value-field="postalAddress"/>
+            </if>
+
+            <!-- update contactMech -->
+            <entity-find-one entity-name="mantle.party.contact.ContactMech" value-field="contactMech"/>
+            <set field="stateMap" from="[VALID:'CmtlValid', INVALID:'CmtlInvalid', INCOMPLETE:'CmtlIncomplete']"/>
+            <set field="contactMech.trustLevelEnumId" from="stateMap.get(responseMap.object_state)"/>
+            <if condition="responseMap.messages">
+                <set field="validateMessage" value=""/>
+                <iterate list="responseMap.messages" entry="messageObj">
+                    <!-- TODO: comment out? -->
+                    <log level="info" message="Shippo validate address ${contactMechId} message: ${messageObj}"/>
+                    <set field="validateMessage" value="${validateMessage}(${messageObj.source}:${messageObj.code})${messageObj.text}"/>
+                </iterate>
+                <if condition="validateMessage.length() &gt; 255"><set field="validateMessage" from="validateMessage.substring(0,255)"/></if>
+                <set field="contactMech.validateMessage" from="validateMessage"/>
+            </if>
+            <entity-update value-field="contactMech"/>
+
+            <!-- update postalAddress -->
+            <set field="postalAddress.shipGatewayAddressId" from="responseMap.object_id"/>
+            <entity-update value-field="postalAddress"/>
+        </actions>
+    </service>
+
+    <service verb="get" noun="AddressMap">
+        <in-parameters>
+            <parameter name="postalAddress" type="EntityValue" required="true"/>
+            <parameter name="partyId"/>
+            <parameter name="isOrigin" type="Boolean" default="false"/>
+        </in-parameters>
+        <out-parameters><parameter name="addressMap" type="Map"/></out-parameters>
+        <actions>
+            <set field="contactMechId" from="postalAddress.contactMechId"/>
+            <if condition="!partyId">
+                <!-- try to find from related Party -->
+                <entity-find entity-name="mantle.party.contact.PartyContactMech" list="pcmList">
+                    <econdition field-name="contactMechId"/><select-field field-name="partyId"/></entity-find>
+                <set field="partyIds" from="new HashSet(pcmList*.partyId)"/>
+                <!-- only if there is only one Party associated with the address -->
+                <if condition="partyIds.size() == 1"><set field="partyId" from="pcmList[0].partyId"/></if>
+            </if>
+
+            <!-- name/company fields -->
+            <if condition="postalAddress.attnName"><then>
+                <set field="name" from="postalAddress.attnName"/>
+                <set field="company" from="postalAddress.toName"/>
+            </then><else>
+                <set field="name" from="postalAddress.toName"/>
+                <set field="company" from="null"/>
+            </else></if>
+            <if condition="!name &amp;&amp; partyId">
+                <entity-find-one entity-name="mantle.party.PartyDetail" value-field="partyDetail"><field-map field-name="partyId"/></entity-find-one>
+                <if condition="partyDetail != null">
+                    <set field="name" value="${partyDetail.firstName ? partyDetail.firstName + ' ' : ''}${partyDetail.lastName?:''}${partyDetail.organizationName?:''}"/></if>
+            </if>
+            <if condition="!name"><return error="true" message="No name found for address ${contactMechId}"/></if>
+
+            <!-- address fields -->
+            <set field="street1" from="postalAddress.address1"/>
+            <if condition="postalAddress.unitNumber"><set field="street1" from="street1 + ' #' + (String) postalAddress.unitNumber"/></if>
+            <set field="stateProvinceGeo" from="postalAddress.stateProvinceGeo"/>
+            <set field="countryGeo" from="postalAddress.countryGeo"/>
+
+            <!-- phone number -->
+            <if condition="postalAddress.telecomContactMechId">
+                <entity-find-one entity-name="mantle.party.contact.TelecomNumber" value-field="telecomNumber">
+                    <field-map field-name="contactMechId" from="postalAddress.telecomContactMechId"/></entity-find-one>
+            </if>
+            <if condition="telecomNumber == null &amp;&amp; partyId">
+                <service-call name="mantle.party.ContactServices.get#PartyContactInfo" out-map="telecomInfo"
+                        in-map="[partyId:partyId, telecomContactMechPurposeId:(isOrigin ? 'PhoneShippingOrigin' : 'PhoneShippingDest')]"/>
+                <if condition="telecomInfo.telecomNumber != null">
+                    <set field="telecomNumber" from="telecomInfo.telecomNumber"/>
+                    <set field="postalAddress.telecomContactMechId" from="telecomNumber.contactMechId"/>
+                    <entity-update value-field="postalAddress"/>
+                </if>
+            </if>
+            <if condition="telecomNumber != null">
+                <set field="phone" value="${telecomNumber.countryCode? telecomNumber.countryCode + '-' :''}${telecomNumber.areaCode? telecomNumber.areaCode + '-' :''}${telecomNumber.contactNumber?:''}"/></if>
+
+            <!-- email address -->
+            <if condition="postalAddress.emailContactMechId">
+                <entity-find-one entity-name="mantle.party.contact.ContactMech" value-field="emailCm">
+                    <field-map field-name="contactMechId" from="postalAddress.emailContactMechId"/></entity-find-one>
+                <set field="email" from="emailCm?.infoString"/>
+            </if>
+            <if condition="!email &amp;&amp; partyId">
+                <service-call name="mantle.party.ContactServices.get#PartyContactInfo" out-map="emailInfo"
+                        in-map="[partyId:partyId, emailContactMechPurposeId:(isOrigin ? 'EmailShippingOrigin' : 'EmailShippingDest')]"/>
+                <if condition="emailInfo.emailAddress">
+                    <set field="email" from="emailInfo.emailAddress"/>
+                    <set field="postalAddress.emailContactMechId" from="emailInfo.emailContactMechId"/>
+                    <entity-update value-field="postalAddress"/>
+                </if>
+            </if>
+
+            <!-- make the Map -->
+            <set field="addressMap" from="[object_purpose:'PURCHASE', name:name, company:company,
+                street1:street1, street2:postalAddress.address2, city:postalAddress.city,
+                state:stateProvinceGeo?.geoCodeAlpha2, country:countryGeo?.geoCodeAlpha2, zip:postalAddress.postalCode,
+                phone:phone, email:email]"/>
+        </actions>
+    </service>
+</services>
