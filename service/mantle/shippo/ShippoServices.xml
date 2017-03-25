@@ -25,7 +25,7 @@ along with this software (see the LICENSE.md file). If not, see
             <entity-find-one entity-name="mantle.shipment.carrier.ShippingGatewayOption" value-field="apiTokenOpt">
                 <field-map field-name="shippingGatewayConfigId"/><field-map field-name="optionEnumId" value="SgoApiToken"/></entity-find-one>
             <set field="apiToken" from="apiTokenOpt?.optionValue"/>
-            <if condition="!apiToken"><log level="warn" message="Shipping gateway ${shippingGatewayConfigId} has no SgoApiToken, not validating address"/><return/></if>
+            <if condition="!apiToken"><log level="warn" message="Shipping gateway ${shippingGatewayConfigId} has no SgoApiToken, not requesting label"/><return/></if>
 
             <entity-find-one entity-name="mantle.shipment.carrier.ShippingGatewayOption" value-field="labelTypeOpt">
                 <field-map field-name="shippingGatewayConfigId"/><field-map field-name="optionEnumId" value="SgoLabelType"/></entity-find-one>
@@ -125,14 +125,12 @@ along with this software (see the LICENSE.md file). If not, see
             <iterate list="packageRouteSegList" entry="packageRouteSeg">
                 <set field="shipmentPackageSeqId" from="packageRouteSeg.shipmentPackageSeqId"/>
                 <if condition="packageRouteSeg.gatewayLabelId">
-                    <message>Package ${shipmentPackageSeqId} in route segment ${shipmentRouteSegmentSeqId} already has Shippo label ${packageRouteSeg.gatewayLabelId}, skipping; void label to create a new one</message>
+                    <message>Package ${shipmentPackageSeqId} in route segment ${shipmentRouteSegmentSeqId} already has Shippo label ${packageRouteSeg.gatewayLabelId}, skipping package</message>
                     <continue/>
                 </if>
                 <entity-find-one entity-name="mantle.shipment.ShipmentPackage" value-field="shipmentPackage"/>
 
                 <!-- parcel -->
-                <!-- length units supported: "cm", "in", "ft", "mm", "m", "yd" -->
-                <!-- weight units supported: "g", "oz", "lb", "kg" -->
                 <set field="boxType" from="shipmentPackage.boxType"/>
                 <if condition="boxType == null"><message>Package ${shipmentPackageSeqId} has no box type, skipping</message><continue/></if>
                 <if condition="boxType.gatewayBoxId"><then>
@@ -140,14 +138,21 @@ along with this software (see the LICENSE.md file). If not, see
                 </then><else>
                     <set field="dimUom" from="boxType.dimensionUom"/>
                     <if condition="!boxType.boxLength || !boxType.boxWidth || !boxType.boxHeight || dimUom == null">
-                        <message>Box type ${boxType.shipmentBoxTypeId} is missing dimensions (length, width, height) or dimension UOM, skipping</message><continue/></if>
+                        <message>Box type ${boxType.shipmentBoxTypeId} is missing dimensions (length, width, height) or dimension UOM, skipping package</message><continue/></if>
                     <set field="weightUom" from="shipmentPackage.weightUom ?: boxType.weightUom"/>
                     <set field="weight" from="shipmentPackage.weight ?: boxType.defaultGrossWeight"/>
                     <if condition="!weight || weightUom == null">
-                        <message>Package ${shipmentPackageSeqId} box type ${boxType.shipmentBoxTypeId} is missing weight or weight UOM, skipping</message><continue/></if>
+                        <message>Package ${shipmentPackageSeqId} box type ${boxType.shipmentBoxTypeId} is missing weight or weight UOM, skipping package</message><continue/></if>
+
+                    <set field="distance_unit" from="dimUom.abbreviation"/>
+                    <if condition="!(distance_unit in ['cm', 'in', 'ft', 'mm', 'm', 'yd'])">
+                        <message>Package ${shipmentPackageSeqId} box type ${boxType.shipmentBoxTypeId} dimension unit is '${distance_unit}', must be one of: 'cm', 'in', 'ft', 'mm', 'm', 'yd'; skipping package</message><continue/></if>
+                    <set field="mass_unit" from="weightUom.abbreviation"/>
+                    <if condition="!(mass_unit in ['g', 'oz', 'lb', 'kg'])">
+                        <message>Package ${shipmentPackageSeqId} box type ${boxType.shipmentBoxTypeId} weight unit is '${mass_unit}', must be one of: 'g', 'oz', 'lb', 'kg'; skipping package</message><continue/></if>
 
                     <set field="parcel" from="[length:boxType.boxLength, width:boxType.boxWidth, height:boxType.boxHeight,
-                            distance_unit:dimUom.abbreviation, weight:weight, mass_unit:weightUom.abbreviation]"/>
+                            distance_unit:distance_unit, weight:weight, mass_unit:mass_unit]"/>
                 </else></if>
 
                 <set field="requestMap" from="[shipment:[object_purpose:'PURCHASE', address_from:address_from, address_to:address_to,
@@ -185,20 +190,20 @@ along with this software (see the LICENSE.md file). If not, see
                     </iterate>
                     <if condition="gatewayMessage.length() &gt; 255"><set field="gatewayMessage" from="gatewayMessage.substring(0,255)"/></if>
                     <set field="packageRouteSeg.gatewayMessage" from="gatewayMessage"/>
-                    <entity-update value-field="packageRouteSeg"/>
                 </if>
-                <!-- save results -->
-                <if condition="responseMap.object_status == 'SUCCESS'"><then>
-                    <set field="packageRouteSeg.gatewayLabelId" from="responseMap.object_id"/>
-                    <set field="packageRouteSeg.gatewayRateId" from="responseMap.rate"/>
-                    <set field="packageRouteSeg.trackingCode" from="responseMap.tracking_number"/>
-                    <set field="packageRouteSeg.trackingUrl" from="responseMap.tracking_url_provider"/>
-                    <set field="packageRouteSeg.labelDate" from="ec.l10n.parseTimestamp(responseMap.object_created, 'yyyy-MM-dd\'T\'HH:mm:ss.SSSZ')"/>
-                    <set field="packageRouteSeg.labelUrl" from="responseMap.label_url"/>
-                    <entity-update value-field="packageRouteSeg"/>
-                </then><else>
-                    <message>Shippo response status not SUCCESS for package ${shipmentPackageSeqId}</message>
-                </else></if>
+                <!-- always save results, whatever we got back -->
+                <set field="packageRouteSeg.gatewayStatus" from="responseMap.object_status"/>
+                <set field="packageRouteSeg.gatewayLabelId" from="responseMap.object_id"/>
+                <set field="packageRouteSeg.gatewayRateId" from="responseMap.rate"/>
+                <set field="packageRouteSeg.trackingStatusEnumId" value="ShTsUnknown"/>
+                <set field="packageRouteSeg.trackingCode" from="responseMap.tracking_number"/>
+                <set field="packageRouteSeg.trackingUrl" from="responseMap.tracking_url_provider"/>
+                <set field="packageRouteSeg.labelDate" from="ec.l10n.parseTimestamp(responseMap.object_created, 'yyyy-MM-dd\'T\'HH:mm:ss.SSSZ')"/>
+                <set field="packageRouteSeg.labelUrl" from="responseMap.label_url"/>
+                <entity-update value-field="packageRouteSeg"/>
+
+                <if condition="responseMap.object_status != 'SUCCESS'">
+                    <message>Shippo response status ${responseMap.object_status} for package ${shipmentPackageSeqId}</message></if>
             </iterate>
         </actions>
     </service>
@@ -206,12 +211,22 @@ along with this software (see the LICENSE.md file). If not, see
     <service verb="void" noun="ShippingLabels">
         <implements service="mantle.shipment.CarrierServices.void#ShippingLabels"/>
         <actions>
+            <entity-find-one entity-name="mantle.shipment.carrier.ShippingGatewayOption" value-field="apiTokenOpt">
+                <field-map field-name="shippingGatewayConfigId"/><field-map field-name="optionEnumId" value="SgoApiToken"/></entity-find-one>
+            <set field="apiToken" from="apiTokenOpt?.optionValue"/>
+            <if condition="!apiToken"><log level="warn" message="Shipping gateway ${shippingGatewayConfigId} has no SgoApiToken, not voiding/refunding label"/><return/></if>
+
             <!-- TODO -->
         </actions>
     </service>
     <service verb="track" noun="ShippingLabels">
         <implements service="mantle.shipment.CarrierServices.track#ShippingLabels"/>
         <actions>
+            <entity-find-one entity-name="mantle.shipment.carrier.ShippingGatewayOption" value-field="apiTokenOpt">
+                <field-map field-name="shippingGatewayConfigId"/><field-map field-name="optionEnumId" value="SgoApiToken"/></entity-find-one>
+            <set field="apiToken" from="apiTokenOpt?.optionValue"/>
+            <if condition="!apiToken"><log level="warn" message="Shipping gateway ${shippingGatewayConfigId} has no SgoApiToken, not tracking shipment"/><return/></if>
+
             <!-- TODO -->
         </actions>
     </service>
