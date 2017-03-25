@@ -27,8 +27,16 @@ along with this software (see the LICENSE.md file). If not, see
         <carriers carrierPartyId="USPS" gatewayAccountId="shippo_usps_account"/>
         <!-- set your Shippo API token (test or live) with a record like this -->
         <options optionEnumId="SgoApiToken" optionValue=""/>
+        <options optionEnumId="SgoLabelType" optionValue="PDF_4x6"/>
     </mantle.shipment.carrier.ShippingGatewayConfig>
     <!-- used in mantle.shipment.CarrierServices.validate#PostalAddress service -->
     <moqui.security.UserGroupPreference userGroupId="ALL_USERS" preferenceKey="ValidateAddressGatewayConfigId"
             preferenceValue="SHIPPO_DEMO"/>
+
+    <mantle.shipment.ShipmentBoxType shipmentBoxTypeId="USPS_SmallFlatRateBox" description="USPS Small Flat Rate Box"
+            dimensionUomId="LEN_in" boxLength="" boxWidth="" boxHeight="" gatewayBoxId="USPS_SmallFlatRateBox"/>
+    <mantle.shipment.ShipmentBoxType shipmentBoxTypeId="USPS_MediumFlatRateBox1" description="USPS Medium Flat Rate Box 1"
+            dimensionUomId="LEN_in" boxLength="" boxWidth="" boxHeight="" gatewayBoxId="USPS_MediumFlatRateBox1"/>
+    <mantle.shipment.ShipmentBoxType shipmentBoxTypeId="USPS_LargeFlatRateBox" description="USPS Large Flat Rate Box"
+            dimensionUomId="LEN_in" boxLength="12.25" boxWidth="12.25" boxHeight="6" gatewayBoxId="USPS_LargeFlatRateBox"/>
 </entity-facade-xml>
