@@ -16,7 +16,7 @@ along with this software (see the LICENSE.md file). If not, see
     <service verb="get" noun="ShippingRate">
         <implements service="mantle.shipment.CarrierServices.get#ShippingRate"/>
         <actions>
-            <!-- TODO -->
+            <!-- TODO FUTURE: get rate from Shippo and save ID, change request#ShippingLabels to do transaction based on rate if set -->
         </actions>
     </service>
     <service verb="request" noun="ShippingLabels">
@@ -67,7 +67,6 @@ along with this software (see the LICENSE.md file). If not, see
                     <set field="address_from" from="originPostalAddress.shipGatewayAddressId"/>
                 </then><else>
                     <!-- TODO: replace updated address on facility, add facilityId to validate#ShippingPostalAddress interface, use update#FacilityPostalAddress instead of update#PartyPostalAddress -->
-                    <!-- TODO: improve update#FacilityPostalAddress similar to party one to set/clear trust/etc on ContactMech/PostalAddress -->
                     <!-- TODO: don't blow up if address not associated with party, and don't update PartyContactMech -->
                     <service-call name="mantle.shippo.ShippoServices.validate#PostalAddress" out-map="toValidateOut"
                             in-map="[contactMechId:originPostalContactMechId, partyId:fromPartyId, facilityId:routeSegment.originFacilityId,
@@ -126,6 +125,11 @@ along with this software (see the LICENSE.md file). If not, see
             </entity-find>
             <iterate list="packageRouteSegList" entry="packageRouteSeg">
                 <set field="shipmentPackageSeqId" from="packageRouteSeg.shipmentPackageSeqId"/>
+                <if condition="packageRouteSeg.gatewayShipmentId">
+                    <message>Shipment ${shipmentId} package ${shipmentPackageSeqId} in route segment ${shipmentRouteSegmentSeqId} already has a Shippo transaction (label) ID, skipping; void label to create a new one</message>
+                    <continue/>
+                </if>
+
                 <entity-find-one entity-name="mantle.shipment.ShipmentPackage" value-field="shipmentPackage"/>
 
                 <!-- TODO parcel -->
@@ -238,7 +242,7 @@ along with this software (see the LICENSE.md file). If not, see
             <!-- <log level="warn" message="Shippo validate address ${contactMechId} response: ${responseMap}"/> -->
 
             <!-- call update#PartyPostalAddress for cleansed address -->
-            <if condition="'VALIDATOR'.equals(responseMap.object_source) &amp;&amp; partyId">
+            <if condition="'VALIDATOR'.equals(responseMap.object_source) &amp;&amp; (partyId || facilityId)">
                 <set field="stateProvinceGeoId" from="postalAddress.stateProvinceGeoId"/>
                 <if condition="postalAddress.countryGeoId &amp;&amp; responseMap.state">
                     <entity-find entity-name="moqui.basic.GeoAssocAndToDetail" list="stateGeoList">
@@ -247,16 +251,25 @@ along with this software (see the LICENSE.md file). If not, see
                     </entity-find>
                     <if condition="stateGeoList"><set field="stateProvinceGeoId" from="stateGeoList[0].toGeoId"/></if>
                 </if>
-                <service-call name="mantle.party.ContactServices.update#PartyPostalAddress" out-map="paOut"
-                        in-map="[partyId:partyId, contactMechId:contactMechId,
-                            toName:(responseMap.company ? responseMap.company : responseMap.name), attnName:(responseMap.company ? responseMap.name : null),
-                            address1:((responseMap.street_no ? responseMap.street_no + ' ' : '') + responseMap.street1),
-                            address2:responseMap.street2, unitNumber:null, city:responseMap.city, stateProvinceGeoId:stateProvinceGeoId,
-                            postalCode:(responseMap.zip.contains('-') ? responseMap.zip.substring(0, responseMap.zip.indexOf('-')) : responseMap.zip),
-                            postalCodeExt:(responseMap.zip.contains('-') ? responseMap.zip.substring(responseMap.zip.indexOf('-') + 1) : ''),
-                            commercial:(responseMap.is_residential != null &amp;&amp; !responseMap.is_residential ? 'Y' : 'N')]"/>
-                <set field="contactMechId" from="paOut.contactMechId"/>
-                <entity-find-one entity-name="mantle.party.contact.PostalAddress" value-field="postalAddress"/>
+                <set field="paInMap" from="[contactMechId:contactMechId,
+                        toName:(responseMap.company ? responseMap.company : responseMap.name), attnName:(responseMap.company ? responseMap.name : null),
+                        address1:((responseMap.street_no ? responseMap.street_no + ' ' : '') + responseMap.street1),
+                        address2:responseMap.street2, unitNumber:null, city:responseMap.city, stateProvinceGeoId:stateProvinceGeoId,
+                        postalCode:(responseMap.zip.contains('-') ? responseMap.zip.substring(0, responseMap.zip.indexOf('-')) : responseMap.zip),
+                        postalCodeExt:(responseMap.zip.contains('-') ? responseMap.zip.substring(responseMap.zip.indexOf('-') + 1) : ''),
+                        commercial:(responseMap.is_residential != null &amp;&amp; !responseMap.is_residential ? 'Y' : 'N')]"/>
+                <if condition="partyId">
+                    <service-call name="mantle.party.ContactServices.update#PartyPostalAddress" out-map="paOut"
+                        in-map="paInMap + [partyId:partyId]"/>
+                    <set field="contactMechId" from="paOut.contactMechId"/>
+                    <entity-find-one entity-name="mantle.party.contact.PostalAddress" value-field="postalAddress"/>
+                </if>
+                <if condition="facilityId">
+                    <service-call name="mantle.facility.ContactServices.update#FacilityPostalAddress" out-map="paOut"
+                            in-map="paInMap + [facilityId:facilityId]"/>
+                    <set field="contactMechId" from="paOut.contactMechId"/>
+                    <entity-find-one entity-name="mantle.party.contact.PostalAddress" value-field="postalAddress"/>
+                </if>
             </if>
 
             <!-- update contactMech -->
