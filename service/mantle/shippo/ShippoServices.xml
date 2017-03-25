@@ -66,7 +66,6 @@ along with this software (see the LICENSE.md file). If not, see
                 <if condition="originPostalAddress.shipGatewayAddressId"><then>
                     <set field="address_from" from="originPostalAddress.shipGatewayAddressId"/>
                 </then><else>
-                    <!-- TODO: replace updated address on facility, add facilityId to validate#ShippingPostalAddress interface, use update#FacilityPostalAddress instead of update#PartyPostalAddress -->
                     <!-- TODO: don't blow up if address not associated with party, and don't update PartyContactMech -->
                     <service-call name="mantle.shippo.ShippoServices.validate#PostalAddress" out-map="toValidateOut"
                             in-map="[contactMechId:originPostalContactMechId, partyId:fromPartyId, facilityId:routeSegment.originFacilityId,
@@ -126,41 +125,56 @@ along with this software (see the LICENSE.md file). If not, see
             <iterate list="packageRouteSegList" entry="packageRouteSeg">
                 <set field="shipmentPackageSeqId" from="packageRouteSeg.shipmentPackageSeqId"/>
                 <if condition="packageRouteSeg.gatewayShipmentId">
-                    <message>Shipment ${shipmentId} package ${shipmentPackageSeqId} in route segment ${shipmentRouteSegmentSeqId} already has a Shippo transaction (label) ID, skipping; void label to create a new one</message>
+                    <message>Package ${shipmentPackageSeqId} in route segment ${shipmentRouteSegmentSeqId} already has Shippo transaction ${packageRouteSeg.gatewayShipmentId}, skipping; void label to create a new one</message>
                     <continue/>
                 </if>
-
                 <entity-find-one entity-name="mantle.shipment.ShipmentPackage" value-field="shipmentPackage"/>
 
-                <!-- TODO parcel -->
+                <!-- parcel -->
                 <!-- length units supported: "cm", "in", "ft", "mm", "m", "yd" -->
                 <!-- weight units supported: "g", "oz", "lb", "kg" -->
+                <set field="boxType" from="shipmentPackage.boxType"/>
+                <if condition="boxType == null"><message>Package ${shipmentPackageSeqId} has no box type, skipping</message><continue/></if>
+                <if condition="boxType.gatewayBoxId"><then>
+                    <set field="parcel" from="boxType.gatewayBoxId"/><!-- for pre-configured flat rate boxes -->
+                </then><else>
+                    <set field="dimUom" from="boxType.dimensionUom"/>
+                    <if condition="!boxType.boxLength || !boxType.boxWidth || !boxType.boxHeight || dimUom == null">
+                        <message>Box type ${boxType.shipmentBoxTypeId} is missing dimensions (length, width, height) or dimension UOM, skipping</message><continue/></if>
+                    <set field="weightUom" from="shipmentPackage.weightUom ?: boxType.weightUom"/>
+                    <set field="weight" from="shipmentPackage.weight ?: boxType.defaultGrossWeight"/>
+                    <if condition="!weight || weightUom == null">
+                        <message>Package ${shipmentPackageSeqId} box type ${boxType.shipmentBoxTypeId} is missing weight or weight UOM, skipping</message><continue/></if>
 
+                    <set field="parcel" from="[length:boxType.boxLength, width:boxType.boxWidth, height:boxType.boxHeight,
+                            distance_unit:dimUom.abbreviation, weight:weight, mass_unit:weightUom.abbreviation]"/>
+                </else></if>
 
                 <set field="requestMap" from="[shipment:[object_purpose:'PURCHASE', address_from:address_from, address_to:address_to,
-                    parcel:parcel], carrier_account:carrier_account, servicelevel_token:servicelevel_token]"/>
+                    parcel:parcel], carrier_account:carrier_account, servicelevel_token:servicelevel_token, async:false]"/>
 
                 <log level="warn" message="Shippo transaction shipment ${shipmentId} request:\n${requestMap}"/>
 
                 <script><![CDATA[
-                import org.moqui.util.RestClient
-                RestClient restClient = ec.service.rest().method(RestClient.POST).addHeader("Authorization", "ShippoToken ${apiToken}")
-                        .addHeader("Content-Type", "application/json").jsonObject(requestMap)
-                restClient.uri().protocol("https").host("api.goshippo.com").port(443).path("transactions").build()
-                RestClient.RestResponse restResponse = restClient.call()
-                if (restResponse.statusCode < 200 || restResponse.statusCode >= 300) {
-                    // based on code in Shippo Java client will return error message in plain text body
-                    String errMsg = restResponse.text()
-                    ec.logger.error("Shippo error response (${restResponse.statusCode}): ${errMsg}")
-                    ec.message.addError(errMsg)
-                    return
-                }
-                responseMap = restResponse.jsonObject()
-            ]]></script>
+                    import org.moqui.util.RestClient
+                    RestClient restClient = ec.service.rest().method(RestClient.POST).addHeader("Authorization", "ShippoToken ${apiToken}")
+                            .addHeader("Content-Type", "application/json").jsonObject(requestMap)
+                    restClient.uri().protocol("https").host("api.goshippo.com").port(443).path("transactions").build()
+                    RestClient.RestResponse restResponse = restClient.call()
+                    if (restResponse.statusCode < 200 || restResponse.statusCode >= 300) {
+                        // based on code in Shippo Java client will return error message in plain text body
+                        String errMsg = restResponse.text()
+                        ec.logger.error("Shippo error response (${restResponse.statusCode}): ${errMsg}")
+                        ec.message.addError(errMsg)
+                        return
+                    }
+                    responseMap = restResponse.jsonObject()
+                ]]></script>
 
                 <log level="warn" message="Shippo transaction shipment ${shipmentId} response: ${responseMap}"/>
 
                 <!-- TODO save results -->
+
             </iterate>
         </actions>
     </service>
