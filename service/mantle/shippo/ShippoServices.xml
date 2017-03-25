@@ -124,8 +124,8 @@ along with this software (see the LICENSE.md file). If not, see
             </entity-find>
             <iterate list="packageRouteSegList" entry="packageRouteSeg">
                 <set field="shipmentPackageSeqId" from="packageRouteSeg.shipmentPackageSeqId"/>
-                <if condition="packageRouteSeg.gatewayShipmentId">
-                    <message>Package ${shipmentPackageSeqId} in route segment ${shipmentRouteSegmentSeqId} already has Shippo transaction ${packageRouteSeg.gatewayShipmentId}, skipping; void label to create a new one</message>
+                <if condition="packageRouteSeg.gatewayLabelId">
+                    <message>Package ${shipmentPackageSeqId} in route segment ${shipmentRouteSegmentSeqId} already has Shippo label ${packageRouteSeg.gatewayLabelId}, skipping; void label to create a new one</message>
                     <continue/>
                 </if>
                 <entity-find-one entity-name="mantle.shipment.ShipmentPackage" value-field="shipmentPackage"/>
@@ -151,7 +151,7 @@ along with this software (see the LICENSE.md file). If not, see
                 </else></if>
 
                 <set field="requestMap" from="[shipment:[object_purpose:'PURCHASE', address_from:address_from, address_to:address_to,
-                    parcel:parcel], carrier_account:carrier_account, servicelevel_token:servicelevel_token, async:false]"/>
+                        parcel:parcel], carrier_account:carrier_account, servicelevel_token:servicelevel_token, async:false]"/>
 
                 <log level="warn" message="Shippo transaction shipment ${shipmentId} request:\n${requestMap}"/>
 
@@ -164,45 +164,44 @@ along with this software (see the LICENSE.md file). If not, see
                     if (restResponse.statusCode < 200 || restResponse.statusCode >= 300) {
                         // based on code in Shippo Java client will return error message in plain text body
                         String errMsg = restResponse.text()
-                        ec.logger.error("Shippo error response (${restResponse.statusCode}): ${errMsg}")
-                        ec.message.addError(errMsg)
-                        return
+                        ec.logger.error("Shippo error package ${shipmentId}:${shipmentRouteSegmentSeqId}:${shipmentPackageSeqId} response (${restResponse.statusCode}): ${errMsg}")
+                        ec.message.addMessage("Shippo API error for package ${shipmentPackageSeqId}")
+                        ec.message.addMessage(errMsg)
+                        packageRouteSeg.gatewayMessage = errMsg
+                        packageRouteSeg.update()
+                        continue
                     }
                     responseMap = restResponse.jsonObject()
                 ]]></script>
 
                 <log level="warn" message="Shippo transaction shipment ${shipmentId} response: ${responseMap}"/>
 
-                <!-- TODO save results -->
-
+                <!-- show messages -->
+                <set field="gatewayMessage" value=""/>
+                <if condition="responseMap.messages">
+                    <iterate list="responseMap.messages" entry="messageObj">
+                        <message>(${messageObj.source}:${messageObj.code}) ${messageObj.text}</message>
+                        <set field="gatewayMessage" value="${gatewayMessage}(${messageObj.source}:${messageObj.code}) ${messageObj.text} "/>
+                    </iterate>
+                    <if condition="gatewayMessage.length() &gt; 255"><set field="gatewayMessage" from="gatewayMessage.substring(0,255)"/></if>
+                    <set field="packageRouteSeg.gatewayMessage" from="gatewayMessage"/>
+                    <entity-update value-field="packageRouteSeg"/>
+                </if>
+                <!-- save results -->
+                <if condition="responseMap.object_status == 'SUCCESS'"><then>
+                    <set field="packageRouteSeg.gatewayLabelId" from="responseMap.object_id"/>
+                    <set field="packageRouteSeg.gatewayRateId" from="responseMap.rate"/>
+                    <set field="packageRouteSeg.trackingCode" from="responseMap.tracking_number"/>
+                    <set field="packageRouteSeg.trackingUrl" from="responseMap.tracking_url_provider"/>
+                    <set field="packageRouteSeg.labelDate" from="ec.l10n.parseTimestamp(responseMap.object_created, 'yyyy-MM-dd\'T\'HH:mm:ss.SSSZ')"/>
+                    <set field="packageRouteSeg.labelUrl" from="responseMap.label_url"/>
+                    <entity-update value-field="packageRouteSeg"/>
+                </then><else>
+                    <message>Shippo response status not SUCCESS for package ${shipmentPackageSeqId}</message>
+                </else></if>
             </iterate>
         </actions>
     </service>
-    <!--
-{
-    "object_state": "VALID",
-    "object_status": "SUCCESS",
-    "object_created": "2013-12-27T19:14:48.273Z",
-    "object_updated": "2013-12-27T19:14:48.273Z",
-    "object_id": "64bba01845ef40d29374032599f22588",
-    "object_owner": "shippotle@goshippo.com",
-    "was_test": false,
-    "rate": "cf6fea899f1848b494d9568e8266e076",
-    "tracking_number": "ZW70QJC",
-    "tracking_status": {
-        "object_created": "2013-12-27T23:17:41.411Z",
-        "object_id": "a21b3d6831c14ceaba6730179ce6e784",
-        "status": "UNKNOWN",
-        "status_details": "",
-        "status_date": "2013-12-28T12:04:04.214Z"
-    },
-    "tracking_history": [],
-    "tracking_url_provider": "https://tools.usps.com/go/TrackConfirmAction.action?tLabels=ZW70QJC",
-    "label_url": "https://shippo-delivery.s3.amazonaws.com/96.pdf?Signature=PEdWrp0mFWAGwJp7FW3b%2FeA2eyY%3D&Expires=1385930652&AWSAccessKeyId=AKIAJTHP3LLFMYAWALIA",
-    "commercial_invoice_url": "",
-    "metadata": "",
-    "messages": []
-}    -->
 
     <service verb="void" noun="ShippingLabels">
         <implements service="mantle.shipment.CarrierServices.void#ShippingLabels"/>
