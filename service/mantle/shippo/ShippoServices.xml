@@ -124,10 +124,7 @@ along with this software (see the LICENSE.md file). If not, see
             </entity-find>
             <iterate list="packageRouteSegList" entry="packageRouteSeg">
                 <set field="shipmentPackageSeqId" from="packageRouteSeg.shipmentPackageSeqId"/>
-                <if condition="packageRouteSeg.gatewayLabelId">
-                    <message>Package ${shipmentPackageSeqId} in route segment ${shipmentRouteSegmentSeqId} already has Shippo label ${packageRouteSeg.gatewayLabelId}, skipping package</message>
-                    <continue/>
-                </if>
+                <if condition="packageRouteSeg.gatewayLabelId"><message>Package ${shipmentPackageSeqId} in route segment ${shipmentRouteSegmentSeqId} already has Shippo label ${packageRouteSeg.gatewayLabelId}, skipping package</message><continue/></if>
                 <entity-find-one entity-name="mantle.shipment.ShipmentPackage" value-field="shipmentPackage"/>
 
                 <!-- parcel -->
@@ -203,20 +200,60 @@ along with this software (see the LICENSE.md file). If not, see
                 <entity-update value-field="packageRouteSeg"/>
 
                 <if condition="responseMap.object_status != 'SUCCESS'">
-                    <message>Shippo response status ${responseMap.object_status} for package ${shipmentPackageSeqId}</message></if>
+                    <message>Shippo label status ${responseMap.object_status} for package ${shipmentPackageSeqId}</message></if>
             </iterate>
         </actions>
     </service>
 
-    <service verb="void" noun="ShippingLabels">
-        <implements service="mantle.shipment.CarrierServices.void#ShippingLabels"/>
+    <service verb="refund" noun="ShippingLabels">
+        <implements service="mantle.shipment.CarrierServices.refund#ShippingLabels"/>
         <actions>
             <entity-find-one entity-name="mantle.shipment.carrier.ShippingGatewayOption" value-field="apiTokenOpt">
                 <field-map field-name="shippingGatewayConfigId"/><field-map field-name="optionEnumId" value="SgoApiToken"/></entity-find-one>
             <set field="apiToken" from="apiTokenOpt?.optionValue"/>
             <if condition="!apiToken"><log level="warn" message="Shipping gateway ${shippingGatewayConfigId} has no SgoApiToken, not voiding/refunding label"/><return/></if>
 
-            <!-- TODO -->
+            <entity-find entity-name="mantle.shipment.ShipmentPackageRouteSeg" list="packageRouteSegList">
+                <econdition field-name="shipmentId"/><econdition field-name="shipmentRouteSegmentSeqId"/>
+                <econdition field-name="shipmentPackageSeqId" ignore-if-empty="true"/>
+            </entity-find>
+            <iterate list="packageRouteSegList" entry="packageRouteSeg">
+                <if condition="!packageRouteSeg.gatewayLabelId"><message>Package ${shipmentPackageSeqId} in route segment ${shipmentRouteSegmentSeqId} has no Shippo label, skipping package</message><continue/></if>
+                <if condition="packageRouteSeg.gatewayRefundId"><message>Package ${shipmentPackageSeqId} in route segment ${shipmentRouteSegmentSeqId} Shippo label ${packageRouteSeg.gatewayLabelId} already has refund ${packageRouteSeg.gatewayRefundId}, skipping package</message><continue/></if>
+
+                <set field="requestMap" from="[transaction:packageRouteSeg.gatewayLabelId]"/>
+                <log level="warn" message="Shippo refund shipment ${shipmentId} request:\n${requestMap}"/>
+
+                <script><![CDATA[
+                    import org.moqui.util.RestClient
+                    RestClient restClient = ec.service.rest().method(RestClient.POST).addHeader("Authorization", "ShippoToken ${apiToken}")
+                            .addHeader("Content-Type", "application/json").jsonObject(requestMap)
+                    restClient.uri().protocol("https").host("api.goshippo.com").port(443).path("refunds").build()
+                    RestClient.RestResponse restResponse = restClient.call()
+                    if (restResponse.statusCode < 200 || restResponse.statusCode >= 300) {
+                        // based on code in Shippo Java client will return error message in plain text body
+                        String errMsg = restResponse.text()
+                        ec.logger.error("Shippo error package ${shipmentId}:${shipmentRouteSegmentSeqId}:${shipmentPackageSeqId} response (${restResponse.statusCode}): ${errMsg}")
+                        ec.message.addMessage("Shippo API error for package ${shipmentPackageSeqId}")
+                        ec.message.addMessage(errMsg)
+                        continue
+                    }
+                    responseMap = restResponse.jsonObject()
+                ]]></script>
+
+                <log level="warn" message="Shippo refund shipment ${shipmentId} response: ${responseMap}"/>
+
+                <!-- show messages -->
+                <if condition="responseMap.messages"><iterate list="responseMap.messages" entry="messageObj">
+                    <message>(${messageObj.source}:${messageObj.code}) ${messageObj.text}</message></iterate></if>
+                <!-- always save results, whatever we got back -->
+                <set field="packageRouteSeg.gatewayRefundStatus" from="responseMap.object_status"/>
+                <set field="packageRouteSeg.gatewayRefundId" from="responseMap.object_id"/>
+                <entity-update value-field="packageRouteSeg"/>
+
+                <if condition="responseMap.object_status != 'SUCCESS'">
+                    <message>Shippo refund status ${responseMap.object_status} for package ${shipmentPackageSeqId}</message></if>
+            </iterate>
         </actions>
     </service>
     <service verb="track" noun="ShippingLabels">
@@ -227,7 +264,54 @@ along with this software (see the LICENSE.md file). If not, see
             <set field="apiToken" from="apiTokenOpt?.optionValue"/>
             <if condition="!apiToken"><log level="warn" message="Shipping gateway ${shippingGatewayConfigId} has no SgoApiToken, not tracking shipment"/><return/></if>
 
-            <!-- TODO -->
+            <entity-find entity-name="mantle.shipment.ShipmentPackageRouteSeg" list="packageRouteSegList">
+                <econdition field-name="shipmentId"/><econdition field-name="shipmentRouteSegmentSeqId"/>
+                <econdition field-name="shipmentPackageSeqId" ignore-if-empty="true"/>
+            </entity-find>
+            <iterate list="packageRouteSegList" entry="packageRouteSeg">
+                <if condition="!packageRouteSeg.gatewayLabelId"><message>Package ${shipmentPackageSeqId} in route segment ${shipmentRouteSegmentSeqId} has no Shippo label, skipping package</message><continue/></if>
+
+                <script><![CDATA[
+                    import org.moqui.util.RestClient
+                    RestClient restClient = ec.service.rest().method(RestClient.GET).addHeader("Authorization", "ShippoToken ${apiToken}")
+                            .addHeader("Content-Type", "application/json")
+                    restClient.uri().protocol("https").host("api.goshippo.com").port(443).path("transactions").path((String) packageRouteSeg.gatewayLabelId).build()
+                    RestClient.RestResponse restResponse = restClient.call()
+                    if (restResponse.statusCode < 200 || restResponse.statusCode >= 300) {
+                        // based on code in Shippo Java client will return error message in plain text body
+                        String errMsg = restResponse.text()
+                        ec.logger.error("Shippo error package ${shipmentId}:${shipmentRouteSegmentSeqId}:${shipmentPackageSeqId} response (${restResponse.statusCode}): ${errMsg}")
+                        ec.message.addMessage("Shippo API error for package ${shipmentPackageSeqId}")
+                        ec.message.addMessage(errMsg)
+                        continue
+                    }
+                    responseMap = restResponse.jsonObject()
+                ]]></script>
+
+                <log level="warn" message="Shippo refund shipment ${shipmentId} response: ${responseMap}"/>
+
+                <!-- show messages -->
+                <if condition="responseMap.messages"><iterate list="responseMap.messages" entry="messageObj">
+                    <message>(${messageObj.source}:${messageObj.code}) ${messageObj.text}</message></iterate></if>
+                <!-- check the tracking_number, warn and update if needed -->
+                <if condition="responseMap.tracking_number != packageRouteSeg.trackingCode">
+                    <message>Tracking number from Shippo ${responseMap.tracking_number} did not match locally stored number ${packageRouteSeg.trackingCode}, updated local to match</message>
+                    <set field="packageRouteSeg.trackingCode" from="responseMap.tracking_number"/>
+                </if>
+                <!-- always save results, whatever we got back -->
+                <set field="statusMap" from="responseMap.tracking_status"/>
+                <set field="packageRouteSeg.trackingStatusEnumId" from="[UNKNOWN:'ShTsUnknown', DELIVERED:'ShTsDelivered',
+                        TRANSIT:'ShTsTransit', FAILURE:'ShTsFailure', RETURNED:'ShTsReturned'].get(statusMap.status)"/>
+                <set field="packageRouteSeg.trackingStatusDate" from="ec.l10n.parseTimestamp(statusMap.status_date, 'yyyy-MM-dd\'T\'HH:mm:ss.SSSZ')"/>
+                <entity-update value-field="packageRouteSeg"/>
+
+                <message>Package ${shipmentPackageSeqId} tracking number ${responseMap.tracking_number} current status ${statusMap.status} on ${ec.l10n.format(packageRouteSeg.trackingStatusDate, null)}</message>
+
+                <iterate list="responseMap.tracking_history" entry="historyMap">
+                    <set field="trackingStatusDate" from="ec.l10n.parseTimestamp(historyMap.status_date, 'yyyy-MM-dd\'T\'HH:mm:ss.SSSZ')"/>
+                    <message>History: (${historyMap.status}) ${historyMap.status_details} on ${ec.l10n.format(trackingStatusDate, null)}</message>
+                </iterate>
+            </iterate>
         </actions>
     </service>
 

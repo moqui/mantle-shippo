@@ -17,7 +17,7 @@ along with this software (see the LICENSE.md file). If not, see
             shippingGatewayTypeEnumId="ShGtwyShippo" description="Shippo API Demo"
             getRateServiceName="mantle.shippo.ShippoServices.get#ShippingRate"
             requestLabelsServiceName="mantle.shippo.ShippoServices.request#ShippingLabels"
-            voidLabelsServiceName="mantle.shippo.ShippoServices.void#ShippingLabels"
+            refundLabelsServiceName="mantle.shippo.ShippoServices.refund#ShippingLabels"
             trackLabelsServiceName="mantle.shippo.ShippoServices.track#ShippingLabels"
             validateAddressServiceName="mantle.shippo.ShippoServices.validate#PostalAddress">
         <!-- set your Shippo Account IDs for carriers with records like these -->
@@ -33,6 +33,7 @@ along with this software (see the LICENSE.md file). If not, see
     <moqui.security.UserGroupPreference userGroupId="ALL_USERS" preferenceKey="ValidateAddressGatewayConfigId"
             preferenceValue="SHIPPO_DEMO"/>
 
+    <!-- for other Shippo pre-configured box types see https://goshippo.com/docs/reference#parcel-templates -->
     <mantle.shipment.ShipmentBoxType shipmentBoxTypeId="USPS_SmallFlatRateBox" description="USPS Small Flat Rate Box"
             dimensionUomId="LEN_in" boxLength="" boxWidth="" boxHeight="" gatewayBoxId="USPS_SmallFlatRateBox"/>
     <mantle.shipment.ShipmentBoxType shipmentBoxTypeId="USPS_MediumFlatRateBox1" description="USPS Medium Flat Rate Box 1"
