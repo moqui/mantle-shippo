@@ -151,7 +151,8 @@ along with this software (see the LICENSE.md file). If not, see
 
                 <!-- assemble the full request Map -->
                 <set field="requestMap" from="[shipment:[object_purpose:'PURCHASE', address_from:address_from, address_to:address_to,
-                        parcel:parcel], carrier_account:carrier_account, servicelevel_token:servicelevel_token, async:false]"/>
+                        parcel:parcel], carrier_account:carrier_account, servicelevel_token:servicelevel_token,
+                        label_file_type:label_file_type, async:false]"/>
 
                 <log level="warn" message="Shippo transaction shipment ${shipmentId} request:\n${requestMap}"/>
 
