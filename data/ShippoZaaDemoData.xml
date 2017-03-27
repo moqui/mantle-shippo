@@ -21,6 +21,8 @@ along with this software (see the LICENSE.md file). If not, see
             trackLabelsServiceName="mantle.shippo.ShippoServices.track#ShippingLabels"
             validateAddressServiceName="mantle.shippo.ShippoServices.validate#PostalAddress">
         <!-- set your Shippo Account IDs for carriers with records like these -->
+        <!-- NOTE: these must be object_id values, to get use (with your token):
+            curl https://api.goshippo.com/carrier_accounts/ -H "Authorization: ShippoToken <TOKEN>" -->
         <carriers carrierPartyId="UPS" gatewayAccountId=""/>
         <carriers carrierPartyId="FedEx" gatewayAccountId=""/>
         <carriers carrierPartyId="DHLX" gatewayAccountId="shippo_dhlexpress_account"/>
@@ -32,12 +34,15 @@ along with this software (see the LICENSE.md file). If not, see
     <!-- used in mantle.shipment.CarrierServices.validate#PostalAddress service -->
     <moqui.security.UserGroupPreference userGroupId="ALL_USERS" preferenceKey="ValidateAddressGatewayConfigId"
             preferenceValue="SHIPPO_DEMO"/>
+    <!-- used in mantle.shipment.CarrierServices ShipmentLabels services -->
+    <moqui.security.UserGroupPreference userGroupId="ALL_USERS" preferenceKey="DefaultShipmentGatewayConfigId"
+            preferenceValue="SHIPPO_DEMO"/>
 
     <!-- for other Shippo pre-configured box types see https://goshippo.com/docs/reference#parcel-templates -->
     <mantle.shipment.ShipmentBoxType shipmentBoxTypeId="USPS_SmallFlatRateBox" description="USPS Small Flat Rate Box"
-            dimensionUomId="LEN_in" boxLength="" boxWidth="" boxHeight="" gatewayBoxId="USPS_SmallFlatRateBox"/>
+            dimensionUomId="LEN_in" boxLength="8.69" boxWidth="5.44" boxHeight="1.75" gatewayBoxId="USPS_SmallFlatRateBox"/>
     <mantle.shipment.ShipmentBoxType shipmentBoxTypeId="USPS_MediumFlatRateBox1" description="USPS Medium Flat Rate Box 1"
-            dimensionUomId="LEN_in" boxLength="" boxWidth="" boxHeight="" gatewayBoxId="USPS_MediumFlatRateBox1"/>
+            dimensionUomId="LEN_in" boxLength="11.25" boxWidth="8.75" boxHeight="6" gatewayBoxId="USPS_MediumFlatRateBox1"/>
     <mantle.shipment.ShipmentBoxType shipmentBoxTypeId="USPS_LargeFlatRateBox" description="USPS Large Flat Rate Box"
             dimensionUomId="LEN_in" boxLength="12.25" boxWidth="12.25" boxHeight="6" gatewayBoxId="USPS_LargeFlatRateBox"/>
 </entity-facade-xml>

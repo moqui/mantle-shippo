@@ -130,45 +130,44 @@ along with this software (see the LICENSE.md file). If not, see
                 <!-- parcel -->
                 <set field="boxType" from="shipmentPackage.boxType"/>
                 <if condition="boxType == null"><message>Package ${shipmentPackageSeqId} has no box type, skipping</message><continue/></if>
-                <if condition="boxType.gatewayBoxId"><then>
-                    <set field="parcel" from="boxType.gatewayBoxId"/><!-- for pre-configured flat rate boxes -->
-                </then><else>
-                    <set field="dimUom" from="boxType.dimensionUom"/>
-                    <if condition="!boxType.boxLength || !boxType.boxWidth || !boxType.boxHeight || dimUom == null">
-                        <message>Box type ${boxType.shipmentBoxTypeId} is missing dimensions (length, width, height) or dimension UOM, skipping package</message><continue/></if>
-                    <set field="weightUom" from="shipmentPackage.weightUom ?: boxType.weightUom"/>
-                    <set field="weight" from="shipmentPackage.weight ?: boxType.defaultGrossWeight"/>
-                    <if condition="!weight || weightUom == null">
-                        <message>Package ${shipmentPackageSeqId} box type ${boxType.shipmentBoxTypeId} is missing weight or weight UOM, skipping package</message><continue/></if>
 
-                    <set field="distance_unit" from="dimUom.abbreviation"/>
-                    <if condition="!(distance_unit in ['cm', 'in', 'ft', 'mm', 'm', 'yd'])">
-                        <message>Package ${shipmentPackageSeqId} box type ${boxType.shipmentBoxTypeId} dimension unit is '${distance_unit}', must be one of: 'cm', 'in', 'ft', 'mm', 'm', 'yd'; skipping package</message><continue/></if>
-                    <set field="mass_unit" from="weightUom.abbreviation"/>
-                    <if condition="!(mass_unit in ['g', 'oz', 'lb', 'kg'])">
-                        <message>Package ${shipmentPackageSeqId} box type ${boxType.shipmentBoxTypeId} weight unit is '${mass_unit}', must be one of: 'g', 'oz', 'lb', 'kg'; skipping package</message><continue/></if>
+                <set field="dimUom" from="boxType.dimensionUom"/>
+                <if condition="!boxType.boxLength || !boxType.boxWidth || !boxType.boxHeight || dimUom == null">
+                    <message>Box type ${boxType.shipmentBoxTypeId} is missing dimensions (length, width, height) or dimension UOM, skipping package</message><continue/></if>
+                <set field="weightUom" from="shipmentPackage.weightUom ?: boxType.weightUom"/>
+                <set field="weight" from="shipmentPackage.weight ?: boxType.defaultGrossWeight"/>
+                <if condition="!weight || weightUom == null">
+                    <message>Package ${shipmentPackageSeqId} box type ${boxType.shipmentBoxTypeId} is missing weight or weight UOM, skipping package</message><continue/></if>
 
-                    <set field="parcel" from="[length:boxType.boxLength, width:boxType.boxWidth, height:boxType.boxHeight,
-                            distance_unit:distance_unit, weight:weight, mass_unit:mass_unit]"/>
-                </else></if>
+                <set field="distance_unit" from="dimUom.abbreviation"/>
+                <if condition="!(distance_unit in ['cm', 'in', 'ft', 'mm', 'm', 'yd'])">
+                    <message>Package ${shipmentPackageSeqId} box type ${boxType.shipmentBoxTypeId} dimension unit is '${distance_unit}', must be one of: 'cm', 'in', 'ft', 'mm', 'm', 'yd'; skipping package</message><continue/></if>
+                <set field="mass_unit" from="weightUom.abbreviation"/>
+                <if condition="!(mass_unit in ['g', 'oz', 'lb', 'kg'])">
+                    <message>Package ${shipmentPackageSeqId} box type ${boxType.shipmentBoxTypeId} weight unit is '${mass_unit}', must be one of: 'g', 'oz', 'lb', 'kg'; skipping package</message><continue/></if>
 
+                <set field="parcel" from="[length:boxType.boxLength, width:boxType.boxWidth, height:boxType.boxHeight,
+                            distance_unit:distance_unit, weight:weight, mass_unit:mass_unit, template:boxType.gatewayBoxId]"/>
+
+                <!-- assemble the full request Map -->
                 <set field="requestMap" from="[shipment:[object_purpose:'PURCHASE', address_from:address_from, address_to:address_to,
                         parcel:parcel], carrier_account:carrier_account, servicelevel_token:servicelevel_token, async:false]"/>
 
                 <log level="warn" message="Shippo transaction shipment ${shipmentId} request:\n${requestMap}"/>
 
                 <script><![CDATA[
-                    import org.moqui.util.RestClient
-                    RestClient restClient = ec.service.rest().method(RestClient.POST).addHeader("Authorization", "ShippoToken ${apiToken}")
+                    org.moqui.util.RestClient restClient = ec.service.rest().method(org.moqui.util.RestClient.POST)
+                            .addHeader("Authorization", "ShippoToken ${apiToken}")
                             .addHeader("Content-Type", "application/json").jsonObject(requestMap)
                     restClient.uri().protocol("https").host("api.goshippo.com").port(443).path("transactions").build()
-                    RestClient.RestResponse restResponse = restClient.call()
+                    org.moqui.util.RestClient.RestResponse restResponse = restClient.call()
                     if (restResponse.statusCode < 200 || restResponse.statusCode >= 300) {
                         // based on code in Shippo Java client will return error message in plain text body
                         String errMsg = restResponse.text()
                         ec.logger.error("Shippo error package ${shipmentId}:${shipmentRouteSegmentSeqId}:${shipmentPackageSeqId} response (${restResponse.statusCode}): ${errMsg}")
                         ec.message.addMessage("Shippo API error for package ${shipmentPackageSeqId}")
                         ec.message.addMessage(errMsg)
+                        if (errMsg.length() > 255) errMsg = errMsg.substring(0, 255)
                         packageRouteSeg.gatewayMessage = errMsg
                         packageRouteSeg.update()
                         continue
@@ -225,11 +224,11 @@ along with this software (see the LICENSE.md file). If not, see
                 <log level="warn" message="Shippo refund shipment ${shipmentId} request:\n${requestMap}"/>
 
                 <script><![CDATA[
-                    import org.moqui.util.RestClient
-                    RestClient restClient = ec.service.rest().method(RestClient.POST).addHeader("Authorization", "ShippoToken ${apiToken}")
+                    org.moqui.util.RestClient restClient = ec.service.rest().method(org.moqui.util.RestClient.POST)
+                            .addHeader("Authorization", "ShippoToken ${apiToken}")
                             .addHeader("Content-Type", "application/json").jsonObject(requestMap)
                     restClient.uri().protocol("https").host("api.goshippo.com").port(443).path("refunds").build()
-                    RestClient.RestResponse restResponse = restClient.call()
+                    org.moqui.util.RestClient.RestResponse restResponse = restClient.call()
                     if (restResponse.statusCode < 200 || restResponse.statusCode >= 300) {
                         // based on code in Shippo Java client will return error message in plain text body
                         String errMsg = restResponse.text()
@@ -272,11 +271,11 @@ along with this software (see the LICENSE.md file). If not, see
                 <if condition="!packageRouteSeg.gatewayLabelId"><message>Package ${shipmentPackageSeqId} in route segment ${shipmentRouteSegmentSeqId} has no Shippo label, skipping package</message><continue/></if>
 
                 <script><![CDATA[
-                    import org.moqui.util.RestClient
-                    RestClient restClient = ec.service.rest().method(RestClient.GET).addHeader("Authorization", "ShippoToken ${apiToken}")
+                    org.moqui.util.RestClient restClient = ec.service.rest().method(org.moqui.util.RestClient.GET)
+                            .addHeader("Authorization", "ShippoToken ${apiToken}")
                             .addHeader("Content-Type", "application/json")
                     restClient.uri().protocol("https").host("api.goshippo.com").port(443).path("transactions").path((String) packageRouteSeg.gatewayLabelId).build()
-                    RestClient.RestResponse restResponse = restClient.call()
+                    org.moqui.util.RestClient.RestResponse restResponse = restClient.call()
                     if (restResponse.statusCode < 200 || restResponse.statusCode >= 300) {
                         // based on code in Shippo Java client will return error message in plain text body
                         String errMsg = restResponse.text()
@@ -336,11 +335,11 @@ along with this software (see the LICENSE.md file). If not, see
             <!-- <log level="warn" message="Shippo validate address ${contactMechId} request:\n${addressMap}"/> -->
 
             <script><![CDATA[
-                import org.moqui.util.RestClient
-                RestClient restClient = ec.service.rest().method(RestClient.POST).addHeader("Authorization", "ShippoToken ${apiToken}")
+                org.moqui.util.RestClient restClient = ec.service.rest().method(org.moqui.util.RestClient.POST)
+                        .addHeader("Authorization", "ShippoToken ${apiToken}")
                         .addHeader("Content-Type", "application/json").jsonObject(addressMap)
                 restClient.uri().protocol("https").host("api.goshippo.com").port(443).path("addresses").build()
-                RestClient.RestResponse restResponse = restClient.call()
+                org.moqui.util.RestClient.RestResponse restResponse = restClient.call()
                 if (restResponse.statusCode < 200 || restResponse.statusCode >= 300) {
                     // based on code in Shippo Java client will return error message in plain text body
                     String errMsg = restResponse.text()
