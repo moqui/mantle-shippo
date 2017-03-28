@@ -299,13 +299,18 @@ along with this software (see the LICENSE.md file). If not, see
                     <set field="packageRouteSeg.trackingCode" from="responseMap.tracking_number"/>
                 </if>
                 <!-- always save results, whatever we got back -->
+                <set field="packageRouteSeg.gatewayStatus" from="responseMap.object_status"/>
                 <set field="statusMap" from="responseMap.tracking_status"/>
-                <set field="packageRouteSeg.trackingStatusEnumId" from="[UNKNOWN:'ShTsUnknown', DELIVERED:'ShTsDelivered',
+                <if condition="statusMap"><then>
+                    <set field="packageRouteSeg.trackingStatusEnumId" from="[UNKNOWN:'ShTsUnknown', DELIVERED:'ShTsDelivered',
                         TRANSIT:'ShTsTransit', FAILURE:'ShTsFailure', RETURNED:'ShTsReturned'].get(statusMap.status)"/>
-                <set field="packageRouteSeg.trackingStatusDate" from="ec.l10n.parseTimestamp(statusMap.status_date, 'yyyy-MM-dd\'T\'HH:mm:ss.SSSZ')"/>
-                <entity-update value-field="packageRouteSeg"/>
+                    <set field="packageRouteSeg.trackingStatusDate" from="ec.l10n.parseTimestamp(statusMap.status_date, 'yyyy-MM-dd\'T\'HH:mm:ss.SSSZ')"/>
 
-                <message>Package ${shipmentPackageSeqId} tracking number ${responseMap.tracking_number} current status ${statusMap.status} on ${ec.l10n.format(packageRouteSeg.trackingStatusDate, null)}</message>
+                    <message>Package ${shipmentPackageSeqId} tracking number ${responseMap.tracking_number} current status ${statusMap.status} on ${ec.l10n.format(packageRouteSeg.trackingStatusDate, null)}</message>
+                </then><else>
+                    <message>Package ${shipmentPackageSeqId} tracking number ${responseMap.tracking_number} current status unknown (not yet picked up by carrier)</message>
+                </else></if>
+                <entity-update value-field="packageRouteSeg"/>
 
                 <iterate list="responseMap.tracking_history" entry="historyMap">
                     <set field="trackingStatusDate" from="ec.l10n.parseTimestamp(historyMap.status_date, 'yyyy-MM-dd\'T\'HH:mm:ss.SSSZ')"/>
