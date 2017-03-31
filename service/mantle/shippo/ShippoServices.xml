@@ -118,6 +118,7 @@ along with this software (see the LICENSE.md file). If not, see
             <check-errors/>
 
             <!-- the rest is per package -->
+            <!-- TODO: multi-parcel shipments for UPS and FedEx only up to 10 parcels, see https://goshippo.com/docs/multipiece -->
             <entity-find entity-name="mantle.shipment.ShipmentPackageRouteSeg" list="packageRouteSegList">
                 <econdition field-name="shipmentId"/><econdition field-name="shipmentRouteSegmentSeqId"/>
                 <econdition field-name="shipmentPackageSeqId" ignore-if-empty="true"/>
@@ -377,13 +378,13 @@ along with this software (see the LICENSE.md file). If not, see
                         commercial:(responseMap.is_residential != null &amp;&amp; !responseMap.is_residential ? 'Y' : 'N')]"/>
                 <if condition="partyId">
                     <service-call name="mantle.party.ContactServices.update#PartyPostalAddress" out-map="paOut"
-                        in-map="paInMap + [partyId:partyId]"/>
+                        in-map="paInMap + [partyId:partyId, expireCurrent:false, contactMechPurposeId:'PostalShippingDest']"/>
                     <set field="contactMechId" from="paOut.contactMechId"/>
                     <entity-find-one entity-name="mantle.party.contact.PostalAddress" value-field="postalAddress"/>
                 </if>
                 <if condition="facilityId">
                     <service-call name="mantle.facility.ContactServices.update#FacilityPostalAddress" out-map="paOut"
-                            in-map="paInMap + [facilityId:facilityId]"/>
+                            in-map="paInMap + [facilityId:facilityId, expireCurrent:false]"/>
                     <set field="contactMechId" from="paOut.contactMechId"/>
                     <entity-find-one entity-name="mantle.party.contact.PostalAddress" value-field="postalAddress"/>
                 </if>
