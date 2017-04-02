@@ -452,7 +452,7 @@ along with this software (see the LICENSE.md file). If not, see
 
                 <!-- assemble the full request Map -->
                 <set field="requestMap" from="[shipment:[object_purpose:'PURCHASE', address_from:address_from, address_to:address_to,
-                        parcel:parcel], carrier_account:carrier_account, servicelevel_token:servicelevel_token,
+                        parcels:[parcel]], carrier_account:carrier_account, servicelevel_token:servicelevel_token,
                         label_file_type:label_file_type, async:false]"/>
 
                 <log level="warn" message="Shippo transaction shipment ${shipmentId} request:\n${requestMap}"/>
@@ -493,7 +493,8 @@ along with this software (see the LICENSE.md file). If not, see
                 <!-- always save results, whatever we got back -->
                 <set field="packageRouteSeg.gatewayStatus" from="responseMap.status"/>
                 <set field="packageRouteSeg.gatewayLabelId" from="responseMap.object_id"/>
-                <set field="packageRouteSeg.gatewayRateId" from="responseMap.rate"/>
+                <set field="packageRouteSeg.gatewayRateId" from="responseMap.rate?.object_id"/>
+                <set field="packageRouteSeg.estimatedAmount" from="responseMap.rate?.amount as BigDecimal"/>
                 <set field="packageRouteSeg.trackingStatusEnumId" value="ShTsUnknown"/>
                 <set field="packageRouteSeg.trackingCode" from="responseMap.tracking_number"/>
                 <set field="packageRouteSeg.trackingUrl" from="responseMap.tracking_url_provider"/>
@@ -603,7 +604,7 @@ along with this software (see the LICENSE.md file). If not, see
                     <set field="packageRouteSeg.trackingCode" from="responseMap.tracking_number"/>
                 </if>
                 <!-- always save results, whatever we got back -->
-                <set field="packageRouteSeg.gatewayStatus" from="responseMap.object_status"/>
+                <set field="packageRouteSeg.gatewayStatus" from="responseMap.status"/>
                 <set field="statusMap" from="responseMap.tracking_status"/>
                 <if condition="statusMap"><then>
                     <set field="packageRouteSeg.trackingStatusEnumId" from="[UNKNOWN:'ShTsUnknown', DELIVERED:'ShTsDelivered',
