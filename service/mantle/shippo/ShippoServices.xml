@@ -13,6 +13,305 @@ along with this software (see the LICENSE.md file). If not, see
 <http://creativecommons.org/publicdomain/zero/1.0/>.
 -->
 <services xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/service-definition-2.0.xsd">
+
+    <!-- ========== Rate (Estimate) Services ========== -->
+
+    <service verb="get" noun="OrderShippingRate">
+        <implements service="mantle.shipment.CarrierServices.get#OrderShippingRate"/>
+        <actions>
+            <entity-find-one entity-name="mantle.shipment.carrier.ShippingGatewayOption" value-field="apiTokenOpt">
+                <field-map field-name="shippingGatewayConfigId"/><field-map field-name="optionEnumId" value="SgoApiToken"/></entity-find-one>
+            <set field="apiToken" from="apiTokenOpt?.optionValue"/>
+            <if condition="!apiToken"><log level="warn" message="Shipping gateway ${shippingGatewayConfigId} has no SgoApiToken, not getting rates"/><return/></if>
+
+            <if condition="!packageInfoList"><return message="No package info found, not getting Shippo shipping rates"/></if>
+
+            <entity-find-one entity-name="mantle.order.OrderPart" value-field="orderPart"/>
+
+            <set field="fromPartyId" from="orderPart.vendorPartyId"/>
+            <if condition="!fromPartyId"><return message="Vendor party not set on order part ${orderId}:${orderPartSeqId}"/></if>
+            <set field="toPartyId" from="orderPart.customerPartyId"/>
+            <if condition="!toPartyId"><return message="To party not set on order part ${orderId}:${orderPartSeqId}"/></if>
+
+            <set field="carrierPartyId" from="routeSegment.carrierPartyId"/>
+            <if condition="!carrierPartyId || carrierPartyId == '_NA_'"><return message="Carrier not set on order part ${orderId}:${orderPartSeqId}"/></if>
+            <set field="shipmentMethodEnumId" from="routeSegment.shipmentMethodEnumId"/>
+            <if condition="!shipmentMethodEnumId"><return message="Shipment method not set on order part ${orderId}:${orderPartSeqId}"/></if>
+
+            <!-- address_from -->
+            <if condition="!orderPart.facilityId"><return message="Facility not set on order part ${orderId}:${orderPartSeqId}"/></if>
+            <service-call name="mantle.facility.ContactServices.get#FacilityDefaultShipOrigin" out-map="facOriginOut"
+                    in-map="[facilityId:orderPart.facilityId]"/>
+            <if condition="!facOriginOut.postalContactMechId"><return message="Facility ${orderPart.facilityId} on order part ${orderId}:${orderPartSeqId} has no ship origin address"/></if>
+            <entity-find-one entity-name="mantle.party.contact.PostalAddress" value-field="originPostalAddress">
+                <field-map field-name="contactMechId" from="facOriginOut.postalContactMechId"/></entity-find-one>
+            <if condition="originPostalAddress.shipGatewayAddressId"><then>
+                <set field="address_from" from="originPostalAddress.shipGatewayAddressId"/>
+            </then><else>
+                <service-call name="mantle.shippo.ShippoServices.validate#PostalAddress" out-map="fromValidateOut"
+                        in-map="[contactMechId:facOriginOut.postalContactMechId, partyId:fromPartyId, facilityId:orderPart.facilityId,
+                            shippingGatewayConfigId:shippingGatewayConfigId]"/>
+                <entity-find-one entity-name="mantle.party.contact.PostalAddress" value-field="originPostalAddress">
+                    <field-map field-name="contactMechId" from="fromValidateOut.contactMechId"/></entity-find-one>
+                <set field="address_from" from="originPostalAddress?.shipGatewayAddressId"/>
+                <if condition="!address_from"><return message="Tried to validate and save origin address but got no ID back from Shippo"/></if>
+            </else></if>
+
+            <!-- address_to -->
+            <if condition="!orderPart.postalContactMechId"><return message="Address not set on order part ${orderId}:${orderPartSeqId}"/></if>
+            <entity-find-one entity-name="mantle.party.contact.PostalAddress" value-field="destPostalAddress">
+                <field-map field-name="contactMechId" from="orderPart.postalContactMechId"/></entity-find-one>
+            <if condition="destPostalAddress.shipGatewayAddressId"><then>
+                <set field="address_to" from="destPostalAddress.shipGatewayAddressId"/>
+            </then><else>
+                <service-call name="mantle.shippo.ShippoServices.validate#PostalAddress" out-map="toValidateOut"
+                        in-map="[contactMechId:orderPart.postalContactMechId, partyId:toPartyId, shippingGatewayConfigId:shippingGatewayConfigId]"/>
+                <set field="orderPart.postalContactMechId" from="toValidateOut.contactMechId"/>
+                <entity-update value-field="orderPart"/>
+
+                <entity-find-one entity-name="mantle.party.contact.PostalAddress" value-field="destPostalAddress">
+                    <field-map field-name="contactMechId" from="orderPart.postalContactMechId"/></entity-find-one>
+                <set field="address_to" from="destPostalAddress?.shipGatewayAddressId"/>
+                <if condition="!address_to"><return message="Tried to validate and save destination address but got no ID back from Shippo"/></if>
+            </else></if>
+
+            <!-- carrier_account, servicelevel_token -->
+            <entity-find-one entity-name="mantle.shipment.carrier.ShippingGatewayCarrier" value-field="gatewayCarrier"/>
+            <set field="carrier_account" from="gatewayCarrier?.gatewayAccountId"/>
+            <if condition="!carrier_account"><return message="No Shippo account ID found for carrier ${carrierPartyId} in gateway ${shippingGatewayConfigId}"/></if>
+            <entity-find-one entity-name="mantle.shipment.carrier.CarrierShipmentMethod" value-field="carrierShipmentMethod"/>
+            <set field="servicelevel_token" from="carrierShipmentMethod?.gatewayServiceCode"/>
+            <if condition="!servicelevel_token"><return message="No Shippo service level code found for carrier ${carrierPartyId} method ${shipmentMethodEnumId}"/></if>
+
+            <!-- parcels -->
+            <set field="parcels" from="[]"/>
+            <iterate list="packageInfoList" entry="packageInfo">
+                <!-- parcel -->
+                <entity-find-one entity-name="mantle.shipment.ShipmentBoxType" value-field="boxType">
+                    <field-map field-name="shipmentBoxTypeId" from="packageInfo.shipmentBoxTypeId"/></entity-find-one>
+                <if condition="boxType == null"><message>Package has no box type, skipping</message><continue/></if>
+
+                <set field="dimUom" from="boxType.dimensionUom"/>
+                <if condition="!boxType.boxLength || !boxType.boxWidth || !boxType.boxHeight || dimUom == null">
+                    <message>Box type ${boxType.shipmentBoxTypeId} is missing dimensions (length, width, height) or dimension UOM, skipping package</message><continue/></if>
+                <entity-find-one entity-name="moqui.basic.Uom" value-field="weightUom">
+                    <field-map field-name="uomId" from="packageInfo.weightUomId ?: 'WT_lb'"/></entity-find-one>
+                <set field="weight" from="packageInfo.weight ?: boxType.defaultGrossWeight"/>
+                <if condition="!weight || weightUom == null">
+                    <message>Package ${packageInfo_index} box type ${boxType.shipmentBoxTypeId} is missing weight or weight UOM, skipping package</message><continue/></if>
+
+                <set field="distance_unit" from="dimUom.abbreviation"/>
+                <if condition="!(distance_unit in ['cm', 'in', 'ft', 'mm', 'm', 'yd'])">
+                    <message>Package ${packageInfo_index} box type ${boxType.shipmentBoxTypeId} dimension unit is '${distance_unit}', must be one of: 'cm', 'in', 'ft', 'mm', 'm', 'yd'; skipping package</message><continue/></if>
+                <set field="mass_unit" from="weightUom.abbreviation"/>
+                <if condition="!(mass_unit in ['g', 'oz', 'lb', 'kg'])">
+                    <message>Package ${packageInfo_index} box type ${boxType.shipmentBoxTypeId} weight unit is '${mass_unit}', must be one of: 'g', 'oz', 'lb', 'kg'; skipping package</message><continue/></if>
+
+                <set field="parcel" from="[length:boxType.boxLength, width:boxType.boxWidth, height:boxType.boxHeight,
+                            distance_unit:distance_unit, weight:weight, mass_unit:mass_unit, template:boxType.gatewayBoxId]"/>
+                <script>parcels.add(parcel)</script>
+            </iterate>
+
+            <!-- assemble the full request Map -->
+            <set field="requestMap" from="[address_from:address_from, address_to:address_to,
+                    parcels:parcels, carrier_accounts:[carrier_account], async:false]"/>
+            <!-- NOTE: any way to pass servicelevel_token(s) to limit in advance? for now just filtering after -->
+
+            <log level="warn" message="Shippo rate order ${orderId} request:\n${requestMap}"/>
+
+            <script><![CDATA[
+                org.moqui.util.RestClient restClient = ec.service.rest().method(org.moqui.util.RestClient.POST)
+                        .addHeader("Authorization", "ShippoToken ${apiToken}")
+                        .addHeader("Shippo-API-Version", "2017-03-29")
+                        .addHeader("Content-Type", "application/json").jsonObject(requestMap)
+                restClient.uri().protocol("https").host("api.goshippo.com").port(443).path("shipments").build()
+                org.moqui.util.RestClient.RestResponse restResponse = restClient.call()
+                if (restResponse.statusCode < 200 || restResponse.statusCode >= 300) {
+                    // based on code in Shippo Java client will return error message in plain text body
+                    String errMsg = restResponse.text()
+                    ec.logger.error("Shippo error response (${restResponse.statusCode}): ${errMsg}")
+                    ec.message.addMessage("Shippo API error")
+                    ec.message.addMessage(errMsg)
+                    return
+                }
+                responseMap = restResponse.jsonObject()
+            ]]></script>
+
+            <log level="warn" message="Shippo rate order ${orderId} response: ${responseMap}"/>
+
+            <!-- show messages -->
+            <if condition="responseMap.messages"><iterate list="responseMap.messages" entry="messageObj">
+                <message>(${messageObj.source}:${messageObj.code}) ${messageObj.text}</message></iterate></if>
+
+            <if condition="responseMap.object_status != 'SUCCESS'">
+                <message>Shippo label status ${responseMap.object_status} for package</message></if>
+            
+            <!-- find the rate matching the servicelevel_token -->
+            <set field="shippingTotal" from="0.0"/>
+            <iterate list="responseMap.rates" entry="rateMap">
+                <if condition="rateMap?.servicelevel?.token == servicelevel_token">
+                    <set field="shippingTotal" from="rateMap.amount"/>
+                    <break/>
+                </if>
+            </iterate>
+
+            <!-- create an OrderItem for it if applicable -->
+            <if condition="createOrderItem &amp;&amp; shippingTotal &gt; 0.0">
+                <entity-find-one entity-name="moqui.basic.Enumeration" value-field="shipmentMethodEnum">
+                    <field-map field-name="enumId" from="orderPart.shipmentMethodEnumId"/></entity-find-one>
+                <set field="itemDescription" value="${shipmentMethodEnum.description}"/>
+                <service-call name="create#mantle.order.OrderItem" out-map="context" in-map="[orderId:orderId, orderPartSeqId:orderPartSeqId,
+                        itemTypeEnumId:'ItemShipping', quantity:1, unitAmount:shippingTotal, itemDescription:itemDescription]"/>
+            </if>
+        </actions>
+    </service>
+    <service verb="get" noun="ShippingRatesBulk">
+        <implements service="mantle.shipment.CarrierServices.get#ShippingRatesBulk"/>
+        <actions>
+            <entity-find-one entity-name="mantle.shipment.carrier.ShippingGatewayOption" value-field="apiTokenOpt">
+                <field-map field-name="shippingGatewayConfigId"/><field-map field-name="optionEnumId" value="SgoApiToken"/></entity-find-one>
+            <set field="apiToken" from="apiTokenOpt?.optionValue"/>
+            <if condition="!apiToken"><log level="warn" message="Shipping gateway ${shippingGatewayConfigId} has no SgoApiToken, not getting rates"/><return/></if>
+
+            <if condition="!packageInfoList"><return message="No package info found, not getting Shippo shipping rates"/></if>
+            <if condition="!carrierShipmentMethodList"><return message="No carrier/method list, not getting Shippo shipping rates"/></if>
+
+            <!-- address_from -->
+            <entity-find-one entity-name="mantle.party.contact.PostalAddress" value-field="originPostalAddress">
+                <field-map field-name="contactMechId" from="originPostalContactMechId"/></entity-find-one>
+            <if condition="originPostalAddress.shipGatewayAddressId"><then>
+                <set field="address_from" from="originPostalAddress.shipGatewayAddressId"/>
+            </then><else>
+                <service-call name="mantle.shippo.ShippoServices.validate#PostalAddress" out-map="fromValidateOut"
+                        in-map="[contactMechId:originPostalContactMechId, partyId:fromPartyId, facilityId:originFacilityId,
+                            shippingGatewayConfigId:shippingGatewayConfigId]"/>
+                <entity-find-one entity-name="mantle.party.contact.PostalAddress" value-field="originPostalAddress">
+                    <field-map field-name="contactMechId" from="fromValidateOut.contactMechId"/></entity-find-one>
+                <set field="address_from" from="originPostalAddress?.shipGatewayAddressId"/>
+                <if condition="!address_from"><return message="Tried to validate and save origin address but got no ID back from Shippo"/></if>
+            </else></if>
+
+            <!-- address_to -->
+            <entity-find-one entity-name="mantle.party.contact.PostalAddress" value-field="destPostalAddress">
+                <field-map field-name="contactMechId" from="destPostalContactMechId"/></entity-find-one>
+            <if condition="destPostalAddress.shipGatewayAddressId"><then>
+                <set field="address_to" from="destPostalAddress.shipGatewayAddressId"/>
+            </then><else>
+                <service-call name="mantle.shippo.ShippoServices.validate#PostalAddress" out-map="toValidateOut"
+                        in-map="[contactMechId:destPostalContactMechId, partyId:toPartyId, orderId:orderId, shipmentId:shipmentId,
+                            shippingGatewayConfigId:shippingGatewayConfigId]"/>
+                <set field="destPostalContactMechId" from="toValidateOut.contactMechId"/>
+
+                <entity-find-one entity-name="mantle.party.contact.PostalAddress" value-field="destPostalAddress">
+                    <field-map field-name="contactMechId" from="destPostalContactMechId"/></entity-find-one>
+                <set field="address_to" from="destPostalAddress?.shipGatewayAddressId"/>
+                <if condition="!address_to"><return message="Tried to validate and save destination address but got no ID back from Shippo"/></if>
+            </else></if>
+
+            <!-- carrier_accounts, servicelevel_token reverse Map -->
+            <set field="carrier_accounts" from="[]"/>
+            <set field="carrierPartyIdSet" from="new HashSet()"/>
+            <set field="carrierMethodByServiceLevel" from="[:]"/>
+            <iterate list="carrierShipmentMethodList" entry="carrierMethod">
+                <if condition="!carrierPartyIdSet.contains(carrierMethod.carrierPartyId)">
+                    <entity-find-one entity-name="mantle.shipment.carrier.ShippingGatewayCarrier" value-field="gatewayCarrier" cache="true">
+                        <field-map field-name="shippingGatewayConfigId"/><field-map field-name="carrierPartyId" from="carrierMethod.carrierPartyId"/></entity-find-one>
+                    <if condition="gatewayCarrier?.gatewayAccountId"><then><script>carrier_accounts.add(gatewayCarrier.gatewayAccountId)</script></then>
+                        <else><message>No gateway account ID found for carrier ${carrierMethod.carrierPartyId} in gateway ${shippingGatewayConfigId}</message></else></if>
+                    <script>carrierPartyIdSet.add(carrierMethod.carrierPartyId)</script>
+                </if>
+
+                <entity-find-one entity-name="mantle.shipment.carrier.CarrierShipmentMethod" value-field="carrierMethodValue" cache="true">
+                    <field-map field-name="carrierPartyId" from="carrierMethod.carrierPartyId"/>
+                    <field-map field-name="shipmentMethodEnumId" from="carrierMethod.shipmentMethodEnumId"/>
+                </entity-find-one>
+                <if condition="carrierMethodValue?.gatewayServiceCode">
+                    <then><script>carrierMethodByServiceLevel.put(carrierMethodValue.gatewayServiceCode, carrierMethodValue)</script></then>
+                    <else><message>No Shippo service level code found for carrier ${carrierMethod.carrierPartyId} method ${carrierMethod.shipmentMethodEnumId}</message></else>
+                </if>
+            </iterate>
+
+            <!-- parcels -->
+            <set field="parcels" from="[]"/>
+            <iterate list="packageInfoList" entry="packageInfo">
+                <!-- parcel -->
+                <entity-find-one entity-name="mantle.shipment.ShipmentBoxType" value-field="boxType">
+                    <field-map field-name="shipmentBoxTypeId" from="packageInfo.shipmentBoxTypeId"/></entity-find-one>
+                <if condition="boxType == null"><message>Package has no box type, skipping</message><continue/></if>
+
+                <set field="dimUom" from="boxType.dimensionUom"/>
+                <if condition="!boxType.boxLength || !boxType.boxWidth || !boxType.boxHeight || dimUom == null">
+                    <message>Box type ${boxType.shipmentBoxTypeId} is missing dimensions (length, width, height) or dimension UOM, skipping package</message><continue/></if>
+                <entity-find-one entity-name="moqui.basic.Uom" value-field="weightUom">
+                    <field-map field-name="uomId" from="packageInfo.weightUomId ?: 'WT_lb'"/></entity-find-one>
+                <set field="weight" from="packageInfo.weight ?: boxType.defaultGrossWeight"/>
+                <if condition="!weight || weightUom == null">
+                    <message>Package ${packageInfo_index} box type ${boxType.shipmentBoxTypeId} is missing weight or weight UOM, skipping package</message><continue/></if>
+
+                <set field="distance_unit" from="dimUom.abbreviation"/>
+                <if condition="!(distance_unit in ['cm', 'in', 'ft', 'mm', 'm', 'yd'])">
+                    <message>Package ${packageInfo_index} box type ${boxType.shipmentBoxTypeId} dimension unit is '${distance_unit}', must be one of: 'cm', 'in', 'ft', 'mm', 'm', 'yd'; skipping package</message><continue/></if>
+                <set field="mass_unit" from="weightUom.abbreviation"/>
+                <if condition="!(mass_unit in ['g', 'oz', 'lb', 'kg'])">
+                    <message>Package ${packageInfo_index} box type ${boxType.shipmentBoxTypeId} weight unit is '${mass_unit}', must be one of: 'g', 'oz', 'lb', 'kg'; skipping package</message><continue/></if>
+
+                <set field="parcel" from="[length:boxType.boxLength, width:boxType.boxWidth, height:boxType.boxHeight,
+                            distance_unit:distance_unit, weight:weight, mass_unit:mass_unit, template:boxType.gatewayBoxId]"/>
+                <script>parcels.add(parcel)</script>
+            </iterate>
+
+            <!-- assemble the full request Map -->
+            <set field="requestMap" from="[address_from:address_from, address_to:address_to,
+                    parcels:parcels, carrier_accounts:carrier_accounts, async:false]"/>
+            <!-- NOTE: any way to pass servicelevel_token(s) to limit in advance? for now just filtering after -->
+
+            <log level="warn" message="Shippo bulk rates order:${orderId} request:\n${requestMap}"/>
+
+            <script><![CDATA[
+                org.moqui.util.RestClient restClient = ec.service.rest().method(org.moqui.util.RestClient.POST)
+                        .addHeader("Authorization", "ShippoToken ${apiToken}")
+                        .addHeader("Shippo-API-Version", "2017-03-29")
+                        .addHeader("Content-Type", "application/json").jsonObject(requestMap)
+                restClient.uri().protocol("https").host("api.goshippo.com").port(443).path("shipments").build()
+                org.moqui.util.RestClient.RestResponse restResponse = restClient.call()
+                if (restResponse.statusCode < 200 || restResponse.statusCode >= 300) {
+                    // based on code in Shippo Java client will return error message in plain text body
+                    String errMsg = restResponse.text()
+                    ec.logger.error("Shippo error response (${restResponse.statusCode}): ${errMsg}")
+                    ec.message.addMessage("Shippo API error")
+                    ec.message.addMessage(errMsg)
+                    return
+                }
+                responseMap = restResponse.jsonObject()
+            ]]></script>
+
+            <log level="warn" message="Shippo bulk rates order:${orderId} response: ${responseMap}"/>
+
+            <!-- show messages -->
+            <if condition="responseMap.messages"><iterate list="responseMap.messages" entry="messageObj">
+                <message>(${messageObj.source}:${messageObj.code}) ${messageObj.text}</message></iterate></if>
+
+            <if condition="responseMap.object_status != 'SUCCESS'">
+                <message>Shippo label status ${responseMap.object_status} for package</message></if>
+
+            <!-- find the rates matching the servicelevel_token -->
+            <set field="shippingRateInfoList" from="[]"/>
+            <iterate list="responseMap.rates" entry="rateMap">
+                <set field="carrierMethod" from="carrierMethodByServiceLevel.get(rateMap?.servicelevel?.token)"/>
+                <if condition="carrierMethod != null">
+                    <script>shippingRateInfoList.add([carrierPartyId:carrierMethod.carrierPartyId,
+                            shipmentMethodEnumId:carrierMethod.shipmentMethodEnumId, shippingTotal:rateMap.amount,
+                            currency:rateMap.currency, days:rateMap.days, durationTerms:rateMap.duration_terms,
+                            serviceName:rateMap.servicelevel.name, carrierImageUrl:rateMap.provider_image_75])</script>
+                </if>
+            </iterate>
+        </actions>
+    </service>
+
+    <!-- ============================================= -->
+    <!-- ========== Shipping Label Services ========== -->
+    <!-- ============================================= -->
+
     <service verb="get" noun="ShippingRate">
         <implements service="mantle.shipment.CarrierServices.get#ShippingRate"/>
         <actions>
@@ -66,11 +365,10 @@ along with this software (see the LICENSE.md file). If not, see
                 <if condition="originPostalAddress.shipGatewayAddressId"><then>
                     <set field="address_from" from="originPostalAddress.shipGatewayAddressId"/>
                 </then><else>
-                    <!-- TODO: don't blow up if address not associated with party, and don't update PartyContactMech -->
-                    <service-call name="mantle.shippo.ShippoServices.validate#PostalAddress" out-map="toValidateOut"
+                    <service-call name="mantle.shippo.ShippoServices.validate#PostalAddress" out-map="fromValidateOut"
                             in-map="[contactMechId:originPostalContactMechId, partyId:fromPartyId, facilityId:routeSegment.originFacilityId,
                                 shippingGatewayConfigId:shippingGatewayConfigId]"/>
-                    <set field="originPostalContactMechId" from="toValidateOut.contactMechId"/>
+                    <set field="originPostalContactMechId" from="fromValidateOut.contactMechId"/>
                     <set field="routeSegment.originPostalContactMechId" from="originPostalContactMechId"/>
                     <entity-update value-field="routeSegment"/>
 
@@ -160,6 +458,7 @@ along with this software (see the LICENSE.md file). If not, see
                 <script><![CDATA[
                     org.moqui.util.RestClient restClient = ec.service.rest().method(org.moqui.util.RestClient.POST)
                             .addHeader("Authorization", "ShippoToken ${apiToken}")
+                            .addHeader("Shippo-API-Version", "2017-03-29")
                             .addHeader("Content-Type", "application/json").jsonObject(requestMap)
                     restClient.uri().protocol("https").host("api.goshippo.com").port(443).path("transactions").build()
                     org.moqui.util.RestClient.RestResponse restResponse = restClient.call()
@@ -228,6 +527,7 @@ along with this software (see the LICENSE.md file). If not, see
                 <script><![CDATA[
                     org.moqui.util.RestClient restClient = ec.service.rest().method(org.moqui.util.RestClient.POST)
                             .addHeader("Authorization", "ShippoToken ${apiToken}")
+                            .addHeader("Shippo-API-Version", "2017-03-29")
                             .addHeader("Content-Type", "application/json").jsonObject(requestMap)
                     restClient.uri().protocol("https").host("api.goshippo.com").port(443).path("refunds").build()
                     org.moqui.util.RestClient.RestResponse restResponse = restClient.call()
@@ -275,6 +575,7 @@ along with this software (see the LICENSE.md file). If not, see
                 <script><![CDATA[
                     org.moqui.util.RestClient restClient = ec.service.rest().method(org.moqui.util.RestClient.GET)
                             .addHeader("Authorization", "ShippoToken ${apiToken}")
+                            .addHeader("Shippo-API-Version", "2017-03-29")
                             .addHeader("Content-Type", "application/json")
                     restClient.uri().protocol("https").host("api.goshippo.com").port(443).path("transactions").path((String) packageRouteSeg.gatewayLabelId).build()
                     org.moqui.util.RestClient.RestResponse restResponse = restClient.call()
@@ -321,6 +622,10 @@ along with this software (see the LICENSE.md file). If not, see
         </actions>
     </service>
 
+    <!-- ================================================= -->
+    <!-- ========== Address Validation Services ========== -->
+    <!-- ================================================= -->
+
     <service verb="validate" noun="PostalAddress">
         <implements service="mantle.shipment.CarrierServices.validate#ShippingPostalAddress"/>
         <actions>
@@ -339,11 +644,12 @@ along with this software (see the LICENSE.md file). If not, see
             <set field="addressMap.validate" from="true"/>
             <set field="addressMap.async" from="false"/>
 
-            <!-- <log level="warn" message="Shippo validate address ${contactMechId} request:\n${addressMap}"/> -->
+            <log level="warn" message="Shippo validate address ${contactMechId} request:\n${addressMap}"/>
 
             <script><![CDATA[
                 org.moqui.util.RestClient restClient = ec.service.rest().method(org.moqui.util.RestClient.POST)
                         .addHeader("Authorization", "ShippoToken ${apiToken}")
+                        .addHeader("Shippo-API-Version", "2017-03-29")
                         .addHeader("Content-Type", "application/json").jsonObject(addressMap)
                 restClient.uri().protocol("https").host("api.goshippo.com").port(443).path("addresses").build()
                 org.moqui.util.RestClient.RestResponse restResponse = restClient.call()
@@ -357,10 +663,10 @@ along with this software (see the LICENSE.md file). If not, see
                 responseMap = restResponse.jsonObject()
             ]]></script>
 
-            <!-- <log level="warn" message="Shippo validate address ${contactMechId} response: ${responseMap}"/> -->
+            <log level="warn" message="Shippo validate address ${contactMechId} response: ${responseMap}"/>
 
             <!-- call update#PartyPostalAddress for cleansed address -->
-            <if condition="'VALIDATOR'.equals(responseMap.object_source) &amp;&amp; (partyId || facilityId)">
+            <if condition="partyId || facilityId">
                 <set field="stateProvinceGeoId" from="postalAddress.stateProvinceGeoId"/>
                 <if condition="postalAddress.countryGeoId &amp;&amp; responseMap.state">
                     <entity-find entity-name="moqui.basic.GeoAssocAndToDetail" list="stateGeoList">
@@ -376,33 +682,34 @@ along with this software (see the LICENSE.md file). If not, see
                         postalCode:(responseMap.zip.contains('-') ? responseMap.zip.substring(0, responseMap.zip.indexOf('-')) : responseMap.zip),
                         postalCodeExt:(responseMap.zip.contains('-') ? responseMap.zip.substring(responseMap.zip.indexOf('-') + 1) : ''),
                         commercial:(responseMap.is_residential != null &amp;&amp; !responseMap.is_residential ? 'Y' : 'N')]"/>
-                <if condition="partyId">
-                    <service-call name="mantle.party.ContactServices.update#PartyPostalAddress" out-map="paOut"
-                        in-map="paInMap + [partyId:partyId, expireCurrent:false, contactMechPurposeId:'PostalShippingDest']"/>
-                    <set field="contactMechId" from="paOut.contactMechId"/>
-                    <entity-find-one entity-name="mantle.party.contact.PostalAddress" value-field="postalAddress"/>
-                </if>
-                <if condition="facilityId">
+                <if condition="facilityId"><then>
                     <service-call name="mantle.facility.ContactServices.update#FacilityPostalAddress" out-map="paOut"
                             in-map="paInMap + [facilityId:facilityId, expireCurrent:false]"/>
                     <set field="contactMechId" from="paOut.contactMechId"/>
                     <entity-find-one entity-name="mantle.party.contact.PostalAddress" value-field="postalAddress"/>
-                </if>
+                </then><else-if condition="partyId">
+                    <service-call name="mantle.party.ContactServices.update#PartyPostalAddress" out-map="paOut"
+                            in-map="paInMap + [partyId:partyId, expireCurrent:false, contactMechPurposeId:'PostalShippingDest']"/>
+                    <set field="contactMechId" from="paOut.contactMechId"/>
+                    <entity-find-one entity-name="mantle.party.contact.PostalAddress" value-field="postalAddress"/>
+                </else-if></if>
             </if>
 
             <!-- update contactMech -->
             <entity-find-one entity-name="mantle.party.contact.ContactMech" value-field="contactMech"/>
-            <set field="stateMap" from="[VALID:'CmtlValid', INVALID:'CmtlInvalid', INCOMPLETE:'CmtlIncomplete']"/>
-            <set field="contactMech.trustLevelEnumId" from="stateMap.get(responseMap.object_state)"/>
-            <if condition="responseMap.messages">
+            <set field="is_complete" from="responseMap.is_complete"/>
+            <set field="is_valid" from="responseMap.validation_results ? responseMap.validation_results?.is_valid : true"/>
+            <set field="contactMech.trustLevelEnumId" from="(is_valid &amp;&amp; is_complete) ? 'CmtlValid' : (is_complete ? 'CmtlInvalid' : 'CmtlIncomplete')"/>
+            <if condition="responseMap.validation_results?.messages">
                 <set field="validateMessage" value=""/>
-                <iterate list="responseMap.messages" entry="messageObj">
+                <iterate list="responseMap.validation_results.messages" entry="messageObj">
                     <!-- <log level="info" message="Shippo validate address ${contactMechId} message: ${messageObj}"/> -->
                     <set field="validateMessage" value="${validateMessage}(${messageObj.source}:${messageObj.code}) ${messageObj.text} "/>
                 </iterate>
                 <if condition="validateMessage.length() &gt; 255"><set field="validateMessage" from="validateMessage.substring(0,255)"/></if>
                 <set field="contactMech.validateMessage" from="validateMessage"/>
             </if>
+            <log level="warn" message="updating contactMech: ${contactMech}"/>
             <entity-update value-field="contactMech"/>
 
             <!-- update postalAddress -->
