@@ -33,9 +33,9 @@ along with this software (see the LICENSE.md file). If not, see
             <set field="toPartyId" from="orderPart.customerPartyId"/>
             <if condition="!toPartyId"><return message="To party not set on order part ${orderId}:${orderPartSeqId}"/></if>
 
-            <set field="carrierPartyId" from="routeSegment.carrierPartyId"/>
+            <set field="carrierPartyId" from="carrierPartyId ?: orderPart.carrierPartyId"/>
             <if condition="!carrierPartyId || carrierPartyId == '_NA_'"><return message="Carrier not set on order part ${orderId}:${orderPartSeqId}"/></if>
-            <set field="shipmentMethodEnumId" from="routeSegment.shipmentMethodEnumId"/>
+            <set field="shipmentMethodEnumId" from="shipmentMethodEnumId ?: orderPart.shipmentMethodEnumId"/>
             <if condition="!shipmentMethodEnumId"><return message="Shipment method not set on order part ${orderId}:${orderPartSeqId}"/></if>
 
             <!-- address_from -->
@@ -66,7 +66,8 @@ along with this software (see the LICENSE.md file). If not, see
             </then><else>
                 <service-call name="mantle.shippo.ShippoServices.validate#PostalAddress" out-map="toValidateOut"
                         in-map="[contactMechId:orderPart.postalContactMechId, partyId:toPartyId, shippingGatewayConfigId:shippingGatewayConfigId]"/>
-                <set field="orderPart.postalContactMechId" from="toValidateOut.contactMechId"/>
+                <set field="postalContactMechId" from="toValidateOut.contactMechId"/>
+                <set field="orderPart.postalContactMechId" from="postalContactMechId"/>
                 <entity-update value-field="orderPart"/>
 
                 <entity-find-one entity-name="mantle.party.contact.PostalAddress" value-field="destPostalAddress">
@@ -143,14 +144,13 @@ along with this software (see the LICENSE.md file). If not, see
             <if condition="responseMap.messages"><iterate list="responseMap.messages" entry="messageObj">
                 <message>(${messageObj.source}:${messageObj.code}) ${messageObj.text}</message></iterate></if>
 
-            <if condition="responseMap.object_status != 'SUCCESS'">
-                <message>Shippo label status ${responseMap.object_status} for package</message></if>
+            <if condition="responseMap.status != 'SUCCESS'"><message>Shippo rate status ${responseMap.status} for package</message></if>
             
             <!-- find the rate matching the servicelevel_token -->
             <set field="shippingTotal" from="0.0"/>
             <iterate list="responseMap.rates" entry="rateMap">
                 <if condition="rateMap?.servicelevel?.token == servicelevel_token">
-                    <set field="shippingTotal" from="rateMap.amount"/>
+                    <set field="shippingTotal" from="rateMap.amount as BigDecimal"/>
                     <break/>
                 </if>
             </iterate>
@@ -185,8 +185,10 @@ along with this software (see the LICENSE.md file). If not, see
                 <service-call name="mantle.shippo.ShippoServices.validate#PostalAddress" out-map="fromValidateOut"
                         in-map="[contactMechId:originPostalContactMechId, partyId:fromPartyId, facilityId:originFacilityId,
                             shippingGatewayConfigId:shippingGatewayConfigId]"/>
+                <set field="originPostalContactMechId" from="fromValidateOut.contactMechId"/>
+
                 <entity-find-one entity-name="mantle.party.contact.PostalAddress" value-field="originPostalAddress">
-                    <field-map field-name="contactMechId" from="fromValidateOut.contactMechId"/></entity-find-one>
+                    <field-map field-name="contactMechId" from="originPostalContactMechId"/></entity-find-one>
                 <set field="address_from" from="originPostalAddress?.shipGatewayAddressId"/>
                 <if condition="!address_from"><return message="Tried to validate and save origin address but got no ID back from Shippo"/></if>
             </else></if>
@@ -265,7 +267,7 @@ along with this software (see the LICENSE.md file). If not, see
                     parcels:parcels, carrier_accounts:carrier_accounts, async:false]"/>
             <!-- NOTE: any way to pass servicelevel_token(s) to limit in advance? for now just filtering after -->
 
-            <log level="warn" message="Shippo bulk rates order:${orderId} request:\n${requestMap}"/>
+            <log level="warn" message="Shippo bulk rates request:\n${requestMap}"/>
 
             <script><![CDATA[
                 org.moqui.util.RestClient restClient = ec.service.rest().method(org.moqui.util.RestClient.POST)
@@ -285,14 +287,14 @@ along with this software (see the LICENSE.md file). If not, see
                 responseMap = restResponse.jsonObject()
             ]]></script>
 
-            <log level="warn" message="Shippo bulk rates order:${orderId} response: ${responseMap}"/>
+            <log level="warn" message="Shippo bulk rates response: ${responseMap}"/>
 
             <!-- show messages -->
             <if condition="responseMap.messages"><iterate list="responseMap.messages" entry="messageObj">
                 <message>(${messageObj.source}:${messageObj.code}) ${messageObj.text}</message></iterate></if>
 
-            <if condition="responseMap.object_status != 'SUCCESS'">
-                <message>Shippo label status ${responseMap.object_status} for package</message></if>
+            <if condition="responseMap.status != 'SUCCESS'">
+                <message>Shippo label status ${responseMap.status} for package</message></if>
 
             <!-- find the rates matching the servicelevel_token -->
             <set field="shippingRateInfoList" from="[]"/>
@@ -489,7 +491,7 @@ along with this software (see the LICENSE.md file). If not, see
                     <set field="packageRouteSeg.gatewayMessage" from="gatewayMessage"/>
                 </if>
                 <!-- always save results, whatever we got back -->
-                <set field="packageRouteSeg.gatewayStatus" from="responseMap.object_status"/>
+                <set field="packageRouteSeg.gatewayStatus" from="responseMap.status"/>
                 <set field="packageRouteSeg.gatewayLabelId" from="responseMap.object_id"/>
                 <set field="packageRouteSeg.gatewayRateId" from="responseMap.rate"/>
                 <set field="packageRouteSeg.trackingStatusEnumId" value="ShTsUnknown"/>
@@ -499,8 +501,8 @@ along with this software (see the LICENSE.md file). If not, see
                 <set field="packageRouteSeg.labelUrl" from="responseMap.label_url"/>
                 <entity-update value-field="packageRouteSeg"/>
 
-                <if condition="responseMap.object_status != 'SUCCESS'">
-                    <message>Shippo label status ${responseMap.object_status} for package ${shipmentPackageSeqId}</message></if>
+                <if condition="responseMap.status != 'SUCCESS'">
+                    <message>Shippo label status ${responseMap.status} for package ${shipmentPackageSeqId}</message></if>
             </iterate>
         </actions>
     </service>
@@ -548,12 +550,12 @@ along with this software (see the LICENSE.md file). If not, see
                 <if condition="responseMap.messages"><iterate list="responseMap.messages" entry="messageObj">
                     <message>(${messageObj.source}:${messageObj.code}) ${messageObj.text}</message></iterate></if>
                 <!-- always save results, whatever we got back -->
-                <set field="packageRouteSeg.gatewayRefundStatus" from="responseMap.object_status"/>
+                <set field="packageRouteSeg.gatewayRefundStatus" from="responseMap.status"/>
                 <set field="packageRouteSeg.gatewayRefundId" from="responseMap.object_id"/>
                 <entity-update value-field="packageRouteSeg"/>
 
-                <if condition="responseMap.object_status != 'SUCCESS'">
-                    <message>Shippo refund status ${responseMap.object_status} for package ${shipmentPackageSeqId}</message></if>
+                <if condition="responseMap.status != 'SUCCESS'">
+                    <message>Shippo refund status ${responseMap.status} for package ${shipmentPackageSeqId}</message></if>
             </iterate>
         </actions>
     </service>
