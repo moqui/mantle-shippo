@@ -668,8 +668,16 @@ along with this software (see the LICENSE.md file). If not, see
 
             <log level="warn" message="Shippo validate address ${contactMechId} response: ${responseMap}"/>
 
+            <set field="is_complete" from="responseMap.is_complete"/>
+            <set field="is_valid" from="responseMap.validation_results ? responseMap.validation_results?.is_valid : true"/>
+            <set field="trustLevelEnumId" from="(is_valid &amp;&amp; is_complete) ? 'CmtlValid' : (is_complete ? 'CmtlInvalid' : 'CmtlIncomplete')"/>
+
+            <entity-find-one entity-name="mantle.party.contact.ContactMech" value-field="origContactMech"/>
+            <set field="origContactMech.trustLevelEnumId" from="trustLevelEnumId"/>
+            <entity-update value-field="origContactMech"/>
+
             <!-- call update#PartyPostalAddress for cleansed address -->
-            <if condition="partyId || facilityId">
+            <if condition="is_complete &amp;&amp; (partyId || facilityId)">
                 <set field="stateProvinceGeoId" from="postalAddress.stateProvinceGeoId"/>
                 <if condition="postalAddress.countryGeoId &amp;&amp; responseMap.state">
                     <entity-find entity-name="moqui.basic.GeoAssocAndToDetail" list="stateGeoList">
@@ -698,11 +706,9 @@ along with this software (see the LICENSE.md file). If not, see
                 </else-if></if>
             </if>
 
-            <!-- update contactMech -->
+            <!-- update contactMech (using latest contactMechId) -->
             <entity-find-one entity-name="mantle.party.contact.ContactMech" value-field="contactMech"/>
-            <set field="is_complete" from="responseMap.is_complete"/>
-            <set field="is_valid" from="responseMap.validation_results ? responseMap.validation_results?.is_valid : true"/>
-            <set field="contactMech.trustLevelEnumId" from="(is_valid &amp;&amp; is_complete) ? 'CmtlValid' : (is_complete ? 'CmtlInvalid' : 'CmtlIncomplete')"/>
+            <set field="contactMech.trustLevelEnumId" from="trustLevelEnumId"/>
             <if condition="responseMap.validation_results?.messages">
                 <set field="validateMessage" value=""/>
                 <iterate list="responseMap.validation_results.messages" entry="messageObj">
@@ -712,7 +718,6 @@ along with this software (see the LICENSE.md file). If not, see
                 <if condition="validateMessage.length() &gt; 255"><set field="validateMessage" from="validateMessage.substring(0,255)"/></if>
                 <set field="contactMech.validateMessage" from="validateMessage"/>
             </if>
-            <log level="warn" message="updating contactMech: ${contactMech}"/>
             <entity-update value-field="contactMech"/>
 
             <!-- update postalAddress -->
