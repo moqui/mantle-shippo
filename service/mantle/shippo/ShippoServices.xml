@@ -148,20 +148,29 @@ along with this software (see the LICENSE.md file). If not, see
             
             <!-- find the rate matching the servicelevel_token -->
             <set field="shippingTotal" from="0.0"/>
+            <set field="servicelevelMap" from="null"/>
             <iterate list="responseMap.rates" entry="rateMap">
                 <if condition="rateMap?.servicelevel?.token == servicelevel_token">
                     <set field="shippingTotal" from="rateMap.amount as BigDecimal"/>
+                    <set field="servicelevelMap" from="rateMap.servicelevel"/>
                     <break/>
                 </if>
             </iterate>
 
             <!-- create an OrderItem for it if applicable -->
             <if condition="createOrderItem &amp;&amp; shippingTotal &gt; 0.0">
+                <entity-find-one entity-name="mantle.party.Party" value-field="carrierParty">
+                    <field-map field-name="partyId" from="carrierPartyId"/></entity-find-one>
                 <entity-find-one entity-name="moqui.basic.Enumeration" value-field="shipmentMethodEnum">
                     <field-map field-name="enumId" from="orderPart.shipmentMethodEnumId"/></entity-find-one>
-                <set field="itemDescription" value="${shipmentMethodEnum.description}"/>
+                <set field="itemDescription" value="${carrierParty.pseudoId} ${servicelevelMap.name ?: shipmentMethodEnum.description}"/>
+                <set field="comments" value=""/>
+                <iterate list="parcels" entry="parcel">
+                    <if condition="comments"><set field="comments" from="comments + ', '"/></if>
+                    <set field="comments" value="${comments}${parcel.length}x${parcel.width}x${parcel.height}${parcel.distance_unit} ${parcel.weight}${parcel.mass_unit}"/>
+                </iterate>
                 <service-call name="create#mantle.order.OrderItem" out-map="context" in-map="[orderId:orderId, orderPartSeqId:orderPartSeqId,
-                        itemTypeEnumId:'ItemShipping', quantity:1, unitAmount:shippingTotal, itemDescription:itemDescription]"/>
+                        itemTypeEnumId:'ItemShipping', quantity:1, unitAmount:shippingTotal, itemDescription:itemDescription, comments:comments]"/>
             </if>
         </actions>
     </service>
