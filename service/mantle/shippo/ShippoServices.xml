@@ -118,7 +118,7 @@ along with this software (see the LICENSE.md file). If not, see
                     parcels:parcels, carrier_accounts:[carrier_account], async:false]"/>
             <!-- NOTE: any way to pass servicelevel_token(s) to limit in advance? for now just filtering after -->
 
-            <log level="warn" message="Shippo rate order ${orderId} request:\n${requestMap}"/>
+            <!-- <log level="warn" message="Shippo rate order ${orderId} request:\n${requestMap}"/> -->
 
             <script><![CDATA[
                 org.moqui.util.RestClient restClient = ec.service.rest().method(org.moqui.util.RestClient.POST)
@@ -138,7 +138,7 @@ along with this software (see the LICENSE.md file). If not, see
                 responseMap = restResponse.jsonObject()
             ]]></script>
 
-            <log level="warn" message="Shippo rate order ${orderId} response: ${responseMap}"/>
+            <!-- <log level="warn" message="Shippo rate order ${orderId} response: ${responseMap}"/> -->
 
             <!-- show messages -->
             <if condition="responseMap.messages"><iterate list="responseMap.messages" entry="messageObj">
@@ -267,7 +267,7 @@ along with this software (see the LICENSE.md file). If not, see
                     parcels:parcels, carrier_accounts:carrier_accounts, async:false]"/>
             <!-- NOTE: any way to pass servicelevel_token(s) to limit in advance? for now just filtering after -->
 
-            <log level="warn" message="Shippo bulk rates request:\n${requestMap}"/>
+            <!-- <log level="warn" message="Shippo bulk rates request:\n${requestMap}"/> -->
 
             <script><![CDATA[
                 org.moqui.util.RestClient restClient = ec.service.rest().method(org.moqui.util.RestClient.POST)
@@ -287,7 +287,7 @@ along with this software (see the LICENSE.md file). If not, see
                 responseMap = restResponse.jsonObject()
             ]]></script>
 
-            <log level="warn" message="Shippo bulk rates response: ${responseMap}"/>
+            <!-- <log level="warn" message="Shippo bulk rates response: ${responseMap}"/> -->
 
             <!-- show messages -->
             <if condition="responseMap.messages"><iterate list="responseMap.messages" entry="messageObj">
@@ -455,7 +455,7 @@ along with this software (see the LICENSE.md file). If not, see
                         parcels:[parcel]], carrier_account:carrier_account, servicelevel_token:servicelevel_token,
                         label_file_type:label_file_type, async:false]"/>
 
-                <log level="warn" message="Shippo transaction shipment ${shipmentId} request:\n${requestMap}"/>
+                <!-- <log level="warn" message="Shippo transaction shipment ${shipmentId} request:\n${requestMap}"/> -->
 
                 <script><![CDATA[
                     org.moqui.util.RestClient restClient = ec.service.rest().method(org.moqui.util.RestClient.POST)
@@ -478,7 +478,7 @@ along with this software (see the LICENSE.md file). If not, see
                     responseMap = restResponse.jsonObject()
                 ]]></script>
 
-                <log level="warn" message="Shippo transaction shipment ${shipmentId} response: ${responseMap}"/>
+                <!-- <log level="warn" message="Shippo transaction shipment ${shipmentId} response: ${responseMap}"/> -->
 
                 <!-- show messages -->
                 <set field="gatewayMessage" value=""/>
@@ -525,7 +525,7 @@ along with this software (see the LICENSE.md file). If not, see
                 <if condition="packageRouteSeg.gatewayRefundId"><message>Package ${shipmentPackageSeqId} in route segment ${shipmentRouteSegmentSeqId} Shippo label ${packageRouteSeg.gatewayLabelId} already has refund ${packageRouteSeg.gatewayRefundId}, skipping package</message><continue/></if>
 
                 <set field="requestMap" from="[transaction:packageRouteSeg.gatewayLabelId]"/>
-                <log level="warn" message="Shippo refund shipment ${shipmentId} request:\n${requestMap}"/>
+                <!-- <log level="warn" message="Shippo refund shipment ${shipmentId} request:\n${requestMap}"/> -->
 
                 <script><![CDATA[
                     org.moqui.util.RestClient restClient = ec.service.rest().method(org.moqui.util.RestClient.POST)
@@ -545,7 +545,7 @@ along with this software (see the LICENSE.md file). If not, see
                     responseMap = restResponse.jsonObject()
                 ]]></script>
 
-                <log level="warn" message="Shippo refund shipment ${shipmentId} response: ${responseMap}"/>
+                <!-- <log level="warn" message="Shippo refund shipment ${shipmentId} response: ${responseMap}"/> -->
 
                 <!-- show messages -->
                 <if condition="responseMap.messages"><iterate list="responseMap.messages" entry="messageObj">
@@ -593,7 +593,7 @@ along with this software (see the LICENSE.md file). If not, see
                     responseMap = restResponse.jsonObject()
                 ]]></script>
 
-                <log level="warn" message="Shippo refund shipment ${shipmentId} response: ${responseMap}"/>
+                <!-- <log level="warn" message="Shippo refund shipment ${shipmentId} response: ${responseMap}"/> -->
 
                 <!-- show messages -->
                 <if condition="responseMap.messages"><iterate list="responseMap.messages" entry="messageObj">
@@ -647,7 +647,7 @@ along with this software (see the LICENSE.md file). If not, see
             <set field="addressMap.validate" from="true"/>
             <set field="addressMap.async" from="false"/>
 
-            <log level="warn" message="Shippo validate address ${contactMechId} request:\n${addressMap}"/>
+            <!-- <log level="warn" message="Shippo validate address ${contactMechId} request:\n${addressMap}"/> -->
 
             <script><![CDATA[
                 org.moqui.util.RestClient restClient = ec.service.rest().method(org.moqui.util.RestClient.POST)
@@ -666,7 +666,7 @@ along with this software (see the LICENSE.md file). If not, see
                 responseMap = restResponse.jsonObject()
             ]]></script>
 
-            <log level="warn" message="Shippo validate address ${contactMechId} response: ${responseMap}"/>
+            <!-- <log level="warn" message="Shippo validate address ${contactMechId} response: ${responseMap}"/> -->
 
             <set field="is_complete" from="responseMap.is_complete"/>
             <set field="is_valid" from="responseMap.validation_results ? responseMap.validation_results?.is_valid : true"/>
