@@ -641,13 +641,34 @@ along with this software (see the LICENSE.md file). If not, see
     <service verb="validate" noun="PostalAddress">
         <implements service="mantle.shipment.CarrierServices.validate#ShippingPostalAddress"/>
         <actions>
+            <entity-find-one entity-name="mantle.party.contact.PostalAddress" value-field="postalAddress"/>
+            <if condition="postalAddress == null"><return/></if>
+
+            <!-- if PostalAddress has no shipGatewayAddressId look for one based on it (by ContactMech.replacesContactMechId) and if found return that) -->
+            <if condition="!postalAddress.shipGatewayAddressId">
+                <if condition="partyId"><then>
+                    <entity-find entity-name="mantle.party.contact.PartyContactMechInfo" list="replacesPcmiList">
+                        <date-filter/><econdition field-name="partyId"/>
+                        <econdition field-name="replacesContactMechId" from="contactMechId"/>
+                        <select-field field-name="contactMechId"/><order-by field-name="contactMechId"/>
+                    </entity-find>
+                    <if condition="replacesPcmiList"><set field="contactMechId" from="replacesPcmiList[0].contactMechId"/>
+                        <return/></if>
+                </then><else-if condition="facilityId">
+                    <entity-find entity-name="mantle.facility.FacilityContactMechInfo" list="replacesFcmiList">
+                        <date-filter/><econdition field-name="facilityId"/>
+                        <econdition field-name="replacesContactMechId" from="contactMechId"/>
+                        <select-field field-name="contactMechId"/><order-by field-name="contactMechId"/>
+                    </entity-find>
+                    <if condition="replacesFcmiList"><set field="contactMechId" from="replacesFcmiList[0].contactMechId"/>
+                        <return/></if>
+                </else-if></if>
+            </if>
+
             <entity-find-one entity-name="mantle.shipment.carrier.ShippingGatewayOption" value-field="apiTokenOpt">
                 <field-map field-name="shippingGatewayConfigId"/><field-map field-name="optionEnumId" value="SgoApiToken"/></entity-find-one>
             <set field="apiToken" from="apiTokenOpt?.optionValue"/>
             <if condition="!apiToken"><log level="warn" message="Shipping gateway ${shippingGatewayConfigId} has no SgoApiToken, not validating address"/><return/></if>
-
-            <entity-find-one entity-name="mantle.party.contact.PostalAddress" value-field="postalAddress"/>
-            <if condition="postalAddress == null"><return/></if>
 
             <service-call name="mantle.shippo.ShippoServices.get#AddressMap" out-map="addrOut"
                     in-map="[postalAddress:postalAddress, partyId:partyId]"/>
