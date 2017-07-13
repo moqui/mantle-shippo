@@ -112,6 +112,7 @@ along with this software (see the LICENSE.md file). If not, see
                             distance_unit:distance_unit, weight:weight, mass_unit:mass_unit, template:boxType.gatewayBoxId]"/>
                 <script>parcels.add(parcel)</script>
             </iterate>
+            <if condition="!parcels"><return/></if>
 
             <!-- assemble the full request Map -->
             <set field="requestMap" from="[address_from:address_from, address_to:address_to,
@@ -270,6 +271,7 @@ along with this software (see the LICENSE.md file). If not, see
                             distance_unit:distance_unit, weight:weight, mass_unit:mass_unit, template:boxType.gatewayBoxId]"/>
                 <script>parcels.add(parcel)</script>
             </iterate>
+            <if condition="!parcels"><return/></if>
 
             <!-- assemble the full request Map -->
             <set field="requestMap" from="[address_from:address_from, address_to:address_to,
@@ -723,17 +725,31 @@ along with this software (see the LICENSE.md file). If not, see
                         postalCode:(responseMap.zip.contains('-') ? responseMap.zip.substring(0, responseMap.zip.indexOf('-')) : responseMap.zip),
                         postalCodeExt:(responseMap.zip.contains('-') ? responseMap.zip.substring(responseMap.zip.indexOf('-') + 1) : ''),
                         commercial:(responseMap.is_residential != null &amp;&amp; !responseMap.is_residential ? 'Y' : 'N')]"/>
-                <if condition="facilityId"><then>
-                    <service-call name="mantle.facility.ContactServices.update#FacilityPostalAddress" out-map="paOut"
-                            in-map="paInMap + [facilityId:facilityId, expireCurrent:false]"/>
-                    <set field="contactMechId" from="paOut.contactMechId"/>
-                    <entity-find-one entity-name="mantle.party.contact.PostalAddress" value-field="postalAddress"/>
-                </then><else-if condition="partyId">
-                    <service-call name="mantle.party.ContactServices.update#PartyPostalAddress" out-map="paOut"
-                            in-map="paInMap + [partyId:partyId, expireCurrent:false, contactMechPurposeId:'PostalShippingDest']"/>
-                    <set field="contactMechId" from="paOut.contactMechId"/>
-                    <entity-find-one entity-name="mantle.party.contact.PostalAddress" value-field="postalAddress"/>
-                </else-if></if>
+                <if condition="facilityId">
+                    <entity-find entity-name="mantle.facility.FacilityContactMech" list="origFcmList">
+                        <date-filter/>
+                        <econdition field-name="facilityId"/>
+                        <econdition field-name="contactMechId" from="contactMechId"/>
+                    </entity-find>
+                    <if condition="origFcmList">
+                        <service-call name="mantle.facility.ContactServices.update#FacilityPostalAddress" out-map="paOut"
+                                in-map="paInMap + [facilityId:facilityId, expireCurrent:false]"/>
+                        <set field="contactMechId" from="paOut.contactMechId"/>
+                        <entity-find-one entity-name="mantle.party.contact.PostalAddress" value-field="postalAddress"/>
+                    </if>
+                </if>
+                <if condition="partyId">
+                    <entity-find entity-name="mantle.party.contact.PartyContactMech" list="origPcmList">
+                        <!-- NOTE: do without <date-filter/>, allow if address has ever been associated with Party -->
+                        <econdition field-name="partyId"/><econdition field-name="contactMechId"/>
+                    </entity-find>
+                    <if condition="origPcmList">
+                        <service-call name="mantle.party.ContactServices.update#PartyPostalAddress" out-map="paOut"
+                                in-map="paInMap + [partyId:partyId, expireCurrent:false, contactMechPurposeId:'PostalShippingDest']"/>
+                        <set field="contactMechId" from="paOut.contactMechId"/>
+                        <entity-find-one entity-name="mantle.party.contact.PostalAddress" value-field="postalAddress"/>
+                    </if>
+                </if>
             </if>
 
             <!-- update contactMech (using latest contactMechId) -->
