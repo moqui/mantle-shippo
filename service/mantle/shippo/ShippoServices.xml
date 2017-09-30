@@ -752,13 +752,14 @@ along with this software (see the LICENSE.md file). If not, see
                 </if>
             </if>
 
+            <log message="Shippo validate address ${contactMechId} complete? ${is_complete} valid? ${is_valid} trust ${trustLevelEnumId} commercial ${(responseMap.is_residential != null &amp;&amp; !responseMap.is_residential ? 'Y' : 'N')}"/>
             <!-- update contactMech (using latest contactMechId) -->
             <entity-find-one entity-name="mantle.party.contact.ContactMech" value-field="contactMech"/>
             <set field="contactMech.trustLevelEnumId" from="trustLevelEnumId"/>
             <if condition="responseMap.validation_results?.messages">
                 <set field="validateMessage" value=""/>
                 <iterate list="responseMap.validation_results.messages" entry="messageObj">
-                    <!-- <log level="info" message="Shippo validate address ${contactMechId} message: ${messageObj}"/> -->
+                    <!-- <log message="Shippo validate address ${contactMechId} complete? ${is_complete} valid? ${is_valid} trust ${trustLevelEnumId} message: ${messageObj}"/> -->
                     <set field="validateMessage" value="${validateMessage}(${messageObj.source}:${messageObj.code}) ${messageObj.text} "/>
                 </iterate>
                 <if condition="validateMessage.length() &gt; 255"><set field="validateMessage" from="validateMessage.substring(0,255)"/></if>
