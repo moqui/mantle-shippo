@@ -462,9 +462,9 @@ along with this software (see the LICENSE.md file). If not, see
                             distance_unit:distance_unit, weight:weight, mass_unit:mass_unit, template:boxType.gatewayBoxId]"/>
 
                 <!-- assemble the full request Map -->
-                <set field="requestMap" from="[shipment:[object_purpose:'PURCHASE', address_from:address_from, address_to:address_to,
-                        parcels:[parcel]], carrier_account:carrier_account, servicelevel_token:servicelevel_token,
-                        label_file_type:label_file_type, async:false]"/>
+                <set field="requestMap" from="[
+                    shipment:[object_purpose:'PURCHASE', address_from:address_from, address_to:address_to, parcels:[parcel], extra:[bypass_address_validation:true]],
+                    carrier_account:carrier_account, servicelevel_token:servicelevel_token, label_file_type:label_file_type, async:false]"/>
 
                 <!-- <log level="warn" message="Shippo transaction shipment ${shipmentId} request:\n${requestMap}"/> -->
 
