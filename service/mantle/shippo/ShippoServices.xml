@@ -461,9 +461,20 @@ along with this software (see the LICENSE.md file). If not, see
                 <set field="parcel" from="[length:boxType.boxLength, width:boxType.boxWidth, height:boxType.boxHeight,
                             distance_unit:distance_unit, weight:weight, mass_unit:mass_unit, template:boxType.gatewayBoxId]"/>
 
+                <!-- reference1 with Shipment, Order IDs -->
+                <set field="reference1" value="Shipment ${shipmentId}"/>
+                <entity-find entity-name="mantle.shipment.ShipmentItemSource" list="shipmentItemSourceList">
+                    <econdition field-name="shipmentId"/><econdition field-name="orderId" operator="is-not-null"/>
+                    <select-field field-name="orderId"/>
+                </entity-find>
+                <set field="orderIdSet" from="shipmentItemSourceList ? new TreeSet(shipmentItemSourceList*.orderId) : null"/>
+                <if condition="orderIdSet"><set field="reference1" value="${reference1} Order ${orderIdSet.join(', ')}"/></if>
+                <if condition="reference1.length() &gt; 50"><set field="reference1" from="reference1.substring(0, 50)"/></if>
+
                 <!-- assemble the full request Map -->
                 <set field="requestMap" from="[
-                    shipment:[object_purpose:'PURCHASE', address_from:address_from, address_to:address_to, parcels:[parcel], extra:[bypass_address_validation:true]],
+                    shipment:[object_purpose:'PURCHASE', address_from:address_from, address_to:address_to, parcels:[parcel],
+                        extra:[reference_1:reference1, bypass_address_validation:true]],
                     carrier_account:carrier_account, servicelevel_token:servicelevel_token, label_file_type:label_file_type, async:false]"/>
 
                 <!-- <log level="warn" message="Shippo transaction shipment ${shipmentId} request:\n${requestMap}"/> -->
