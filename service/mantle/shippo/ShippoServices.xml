@@ -45,25 +45,29 @@ along with this software (see the LICENSE.md file). If not, see
             <if condition="!facOriginOut.postalContactMechId"><return message="Facility ${orderPart.facilityId} on order part ${orderId}:${orderPartSeqId} has no ship origin address"/></if>
             <entity-find-one entity-name="mantle.party.contact.PostalAddress" value-field="originPostalAddress">
                 <field-map field-name="contactMechId" from="facOriginOut.postalContactMechId"/></entity-find-one>
-            <if condition="originPostalAddress.shipGatewayAddressId"><then>
-                <set field="address_from" from="originPostalAddress.shipGatewayAddressId"/>
-            </then><else>
+            <if condition="!originPostalAddress.shipGatewayAddressId">
                 <service-call name="mantle.shippo.ShippoServices.validate#PostalAddress" out-map="fromValidateOut"
                         in-map="[contactMechId:facOriginOut.postalContactMechId, partyId:fromPartyId, facilityId:orderPart.facilityId,
                             shippingGatewayConfigId:shippingGatewayConfigId]"/>
                 <entity-find-one entity-name="mantle.party.contact.PostalAddress" value-field="originPostalAddress">
                     <field-map field-name="contactMechId" from="fromValidateOut.contactMechId"/></entity-find-one>
-                <set field="address_from" from="originPostalAddress?.shipGatewayAddressId"/>
-                <if condition="!address_from"><return message="Tried to validate and save origin address but got no ID back from Shippo"/></if>
+            </if>
+
+            <entity-find-one entity-name="mantle.party.contact.ContactMech" value-field="originContactMech">
+                <field-map field-name="contactMechId" from="originPostalAddress.contactMechId"/></entity-find-one>
+            <if condition="originPostalAddress.shipGatewayAddressId &amp;&amp; originContactMech.trustLevelEnumId in ['CmtlValid', 'CmtlVerified']"><then>
+                <set field="address_from" from="originPostalAddress.shipGatewayAddressId"/>
+            </then><else>
+                <service-call name="mantle.shippo.ShippoServices.get#AddressMap" out-map="originAddrOut"
+                        in-map="[postalAddress:originPostalAddress, partyId:fromPartyId]"/>
+                <set field="address_from" from="originAddrOut.addressMap"/>
             </else></if>
 
             <!-- address_to -->
             <if condition="!orderPart.postalContactMechId"><return message="Address not set on order part ${orderId}:${orderPartSeqId}"/></if>
             <entity-find-one entity-name="mantle.party.contact.PostalAddress" value-field="destPostalAddress">
                 <field-map field-name="contactMechId" from="orderPart.postalContactMechId"/></entity-find-one>
-            <if condition="destPostalAddress.shipGatewayAddressId"><then>
-                <set field="address_to" from="destPostalAddress.shipGatewayAddressId"/>
-            </then><else>
+            <if condition="!destPostalAddress.shipGatewayAddressId">
                 <service-call name="mantle.shippo.ShippoServices.validate#PostalAddress" out-map="toValidateOut"
                         in-map="[contactMechId:orderPart.postalContactMechId, partyId:toPartyId, shippingGatewayConfigId:shippingGatewayConfigId]"/>
                 <set field="postalContactMechId" from="toValidateOut.contactMechId"/>
@@ -72,8 +76,16 @@ along with this software (see the LICENSE.md file). If not, see
 
                 <entity-find-one entity-name="mantle.party.contact.PostalAddress" value-field="destPostalAddress">
                     <field-map field-name="contactMechId" from="orderPart.postalContactMechId"/></entity-find-one>
-                <set field="address_to" from="destPostalAddress?.shipGatewayAddressId"/>
-                <if condition="!address_to"><return message="Tried to validate and save destination address but got no ID back from Shippo"/></if>
+            </if>
+
+            <entity-find-one entity-name="mantle.party.contact.ContactMech" value-field="destContactMech">
+                <field-map field-name="contactMechId" from="destPostalAddress.contactMechId"/></entity-find-one>
+            <if condition="destPostalAddress.shipGatewayAddressId &amp;&amp; destContactMech.trustLevelEnumId in ['CmtlValid', 'CmtlVerified']"><then>
+                <set field="address_to" from="destPostalAddress.shipGatewayAddressId"/>
+            </then><else>
+                <service-call name="mantle.shippo.ShippoServices.get#AddressMap" out-map="destAddrOut"
+                        in-map="[postalAddress:destPostalAddress, partyId:toPartyId]"/>
+                <set field="address_to" from="destAddrOut.addressMap"/>
             </else></if>
 
             <!-- carrier_account, servicelevel_token -->
@@ -116,7 +128,7 @@ along with this software (see the LICENSE.md file). If not, see
 
             <!-- assemble the full request Map -->
             <set field="requestMap" from="[address_from:address_from, address_to:address_to,
-                    parcels:parcels, carrier_accounts:[carrier_account], async:false]"/>
+                    parcels:parcels, carrier_accounts:[carrier_account], async:false, extra:[bypass_address_validation:true]]"/>
             <!-- NOTE: any way to pass servicelevel_token(s) to limit in advance? for now just filtering after -->
 
             <!-- <log level="warn" message="Shippo rate order ${orderId} request:\n${requestMap}"/> -->
@@ -189,35 +201,47 @@ along with this software (see the LICENSE.md file). If not, see
             <!-- address_from -->
             <entity-find-one entity-name="mantle.party.contact.PostalAddress" value-field="originPostalAddress">
                 <field-map field-name="contactMechId" from="originPostalContactMechId"/></entity-find-one>
-            <if condition="originPostalAddress.shipGatewayAddressId"><then>
-                <set field="address_from" from="originPostalAddress.shipGatewayAddressId"/>
-            </then><else>
+            <if condition="!originPostalAddress.shipGatewayAddressId">
                 <service-call name="mantle.shippo.ShippoServices.validate#PostalAddress" out-map="fromValidateOut"
                         in-map="[contactMechId:originPostalContactMechId, partyId:fromPartyId, facilityId:originFacilityId,
                             shippingGatewayConfigId:shippingGatewayConfigId]"/>
-                <set field="originPostalContactMechId" from="fromValidateOut.contactMechId"/>
 
+                <set field="originPostalContactMechId" from="fromValidateOut.contactMechId"/>
                 <entity-find-one entity-name="mantle.party.contact.PostalAddress" value-field="originPostalAddress">
                     <field-map field-name="contactMechId" from="originPostalContactMechId"/></entity-find-one>
-                <set field="address_from" from="originPostalAddress?.shipGatewayAddressId"/>
-                <if condition="!address_from"><return message="Tried to validate and save origin address but got no ID back from Shippo"/></if>
+            </if>
+
+            <entity-find-one entity-name="mantle.party.contact.ContactMech" value-field="originContactMech">
+                <field-map field-name="contactMechId" from="originPostalContactMechId"/></entity-find-one>
+            <if condition="originPostalAddress.shipGatewayAddressId &amp;&amp; originContactMech.trustLevelEnumId in ['CmtlValid', 'CmtlVerified']"><then>
+                <set field="address_from" from="originPostalAddress.shipGatewayAddressId"/>
+            </then><else>
+                <service-call name="mantle.shippo.ShippoServices.get#AddressMap" out-map="originAddrOut"
+                        in-map="[postalAddress:originPostalAddress, partyId:fromPartyId]"/>
+                <set field="address_from" from="originAddrOut.addressMap"/>
             </else></if>
 
             <!-- address_to -->
             <entity-find-one entity-name="mantle.party.contact.PostalAddress" value-field="destPostalAddress">
                 <field-map field-name="contactMechId" from="destPostalContactMechId"/></entity-find-one>
-            <if condition="destPostalAddress.shipGatewayAddressId"><then>
-                <set field="address_to" from="destPostalAddress.shipGatewayAddressId"/>
-            </then><else>
+            <if condition="!destPostalAddress.shipGatewayAddressId">
                 <service-call name="mantle.shippo.ShippoServices.validate#PostalAddress" out-map="toValidateOut"
                         in-map="[contactMechId:destPostalContactMechId, partyId:toPartyId, orderId:orderId, shipmentId:shipmentId,
                             shippingGatewayConfigId:shippingGatewayConfigId]"/>
-                <set field="destPostalContactMechId" from="toValidateOut.contactMechId"/>
 
+                <set field="destPostalContactMechId" from="toValidateOut.contactMechId"/>
                 <entity-find-one entity-name="mantle.party.contact.PostalAddress" value-field="destPostalAddress">
                     <field-map field-name="contactMechId" from="destPostalContactMechId"/></entity-find-one>
-                <set field="address_to" from="destPostalAddress?.shipGatewayAddressId"/>
-                <if condition="!address_to"><return message="Tried to validate and save destination address but got no ID back from Shippo"/></if>
+            </if>
+
+            <entity-find-one entity-name="mantle.party.contact.ContactMech" value-field="destContactMech">
+                <field-map field-name="contactMechId" from="destPostalContactMechId"/></entity-find-one>
+            <if condition="destPostalAddress.shipGatewayAddressId &amp;&amp; destContactMech.trustLevelEnumId in ['CmtlValid', 'CmtlVerified']"><then>
+                <set field="address_to" from="destPostalAddress.shipGatewayAddressId"/>
+            </then><else>
+                <service-call name="mantle.shippo.ShippoServices.get#AddressMap" out-map="destAddrOut"
+                        in-map="[postalAddress:destPostalAddress, partyId:toPartyId]"/>
+                <set field="address_to" from="destAddrOut.addressMap"/>
             </else></if>
 
             <!-- carrier_accounts, servicelevel_token reverse Map -->
@@ -275,7 +299,7 @@ along with this software (see the LICENSE.md file). If not, see
 
             <!-- assemble the full request Map -->
             <set field="requestMap" from="[address_from:address_from, address_to:address_to,
-                    parcels:parcels, carrier_accounts:carrier_accounts, async:false]"/>
+                    parcels:parcels, carrier_accounts:carrier_accounts, async:false, extra:[bypass_address_validation:true]]"/>
             <!-- NOTE: any way to pass servicelevel_token(s) to limit in advance? for now just filtering after -->
 
             <!-- <log level="warn" message="Shippo bulk rates request:\n${requestMap}"/> -->
@@ -375,9 +399,7 @@ along with this software (see the LICENSE.md file). If not, see
             <if condition="originPostalContactMechId"><then>
                 <entity-find-one entity-name="mantle.party.contact.PostalAddress" value-field="originPostalAddress">
                     <field-map field-name="contactMechId" from="originPostalContactMechId"/></entity-find-one>
-                <if condition="originPostalAddress.shipGatewayAddressId"><then>
-                    <set field="address_from" from="originPostalAddress.shipGatewayAddressId"/>
-                </then><else>
+                <if condition="!originPostalAddress.shipGatewayAddressId">
                     <service-call name="mantle.shippo.ShippoServices.validate#PostalAddress" out-map="fromValidateOut"
                             in-map="[contactMechId:originPostalContactMechId, partyId:fromPartyId, facilityId:routeSegment.originFacilityId,
                                 shippingGatewayConfigId:shippingGatewayConfigId]"/>
@@ -387,8 +409,16 @@ along with this software (see the LICENSE.md file). If not, see
 
                     <entity-find-one entity-name="mantle.party.contact.PostalAddress" value-field="originPostalAddress">
                         <field-map field-name="contactMechId" from="originPostalContactMechId"/></entity-find-one>
-                    <set field="address_from" from="originPostalAddress?.shipGatewayAddressId"/>
-                    <if condition="!address_from"><message error="true">Tried to validate and save origin address but got no ID back from Shippo</message></if>
+                </if>
+
+                <entity-find-one entity-name="mantle.party.contact.ContactMech" value-field="originContactMech">
+                    <field-map field-name="contactMechId" from="originPostalContactMechId"/></entity-find-one>
+                <if condition="originPostalAddress.shipGatewayAddressId &amp;&amp; originContactMech.trustLevelEnumId in ['CmtlValid', 'CmtlVerified']"><then>
+                    <set field="address_from" from="originPostalAddress.shipGatewayAddressId"/>
+                </then><else>
+                    <service-call name="mantle.shippo.ShippoServices.get#AddressMap" out-map="originAddrOut"
+                            in-map="[postalAddress:originPostalAddress, partyId:fromPartyId]"/>
+                    <set field="address_from" from="originAddrOut.addressMap"/>
                 </else></if>
             </then><else>
                 <message error="true">No destination address set on Shipment Route Segment ${shipmentId}:${shipmentRouteSegmentSeqId}</message>
@@ -399,9 +429,7 @@ along with this software (see the LICENSE.md file). If not, see
             <if condition="destPostalContactMechId"><then>
                 <entity-find-one entity-name="mantle.party.contact.PostalAddress" value-field="destPostalAddress">
                     <field-map field-name="contactMechId" from="destPostalContactMechId"/></entity-find-one>
-                <if condition="destPostalAddress.shipGatewayAddressId"><then>
-                    <set field="address_to" from="destPostalAddress.shipGatewayAddressId"/>
-                </then><else>
+                <if condition="!destPostalAddress.shipGatewayAddressId">
                     <service-call name="mantle.shippo.ShippoServices.validate#PostalAddress" out-map="toValidateOut"
                             in-map="[contactMechId:destPostalContactMechId, partyId:toPartyId, shippingGatewayConfigId:shippingGatewayConfigId]"/>
                     <set field="destPostalContactMechId" from="toValidateOut.contactMechId"/>
@@ -410,8 +438,16 @@ along with this software (see the LICENSE.md file). If not, see
 
                     <entity-find-one entity-name="mantle.party.contact.PostalAddress" value-field="destPostalAddress">
                         <field-map field-name="contactMechId" from="destPostalContactMechId"/></entity-find-one>
-                    <set field="address_to" from="destPostalAddress?.shipGatewayAddressId"/>
-                    <if condition="!address_to"><message error="true">Tried to validate and save destination address but got no ID back from Shippo</message></if>
+                </if>
+
+                <entity-find-one entity-name="mantle.party.contact.ContactMech" value-field="destContactMech">
+                    <field-map field-name="contactMechId" from="destPostalContactMechId"/></entity-find-one>
+                <if condition="destPostalAddress.shipGatewayAddressId &amp;&amp; destContactMech.trustLevelEnumId in ['CmtlValid', 'CmtlVerified']"><then>
+                    <set field="address_to" from="destPostalAddress.shipGatewayAddressId"/>
+                </then><else>
+                    <service-call name="mantle.shippo.ShippoServices.get#AddressMap" out-map="destAddrOut"
+                            in-map="[postalAddress:destPostalAddress, partyId:toPartyId]"/>
+                    <set field="address_to" from="destAddrOut.addressMap"/>
                 </else></if>
             </then><else>
                 <message error="true">No destination address set on Shipment Route Segment ${shipmentId}:${shipmentRouteSegmentSeqId}</message>
@@ -823,6 +859,10 @@ along with this software (see the LICENSE.md file). If not, see
             <set field="stateProvinceGeo" from="postalAddress.stateProvinceGeo"/>
             <set field="countryGeo" from="postalAddress.countryGeo"/>
 
+            <set field="fullZip" from="postalAddress.postalCode"/>
+            <if condition="postalAddress.postalCodeExt &amp;&amp; postalAddress.postalCode != postalAddress.postalCodeExt">
+                <set field="fullZip" value="${postalAddress.postalCode}-${postalAddress.postalCodeExt}"/></if>
+
             <!-- phone number -->
             <if condition="postalAddress.telecomContactMechId">
                 <entity-find-one entity-name="mantle.party.contact.TelecomNumber" value-field="telecomNumber">
@@ -859,7 +899,7 @@ along with this software (see the LICENSE.md file). If not, see
             <!-- make the Map -->
             <set field="addressMap" from="[object_purpose:'PURCHASE', name:name, company:company,
                 street1:street1, street2:postalAddress.address2, city:postalAddress.city,
-                state:stateProvinceGeo?.geoCodeAlpha2, country:countryGeo?.geoCodeAlpha2, zip:postalAddress.postalCode,
+                state:stateProvinceGeo?.geoCodeAlpha2, country:countryGeo?.geoCodeAlpha2, zip:fullZip,
                 phone:phone, email:email]"/>
         </actions>
     </service>
