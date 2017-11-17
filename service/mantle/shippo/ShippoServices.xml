@@ -852,6 +852,8 @@ along with this software (see the LICENSE.md file). If not, see
                     <set field="name" value="${partyDetail.firstName ? partyDetail.firstName + ' ' : ''}${partyDetail.lastName?:''}${partyDetail.organizationName?:''}"/></if>
             </if>
             <if condition="!name"><return error="true" message="No name found for address ${contactMechId}"/></if>
+            <if condition="name.length() &gt; 35"><set field="name" from="name.substring(0, 35)"/></if>
+            <if condition="company &amp;&amp; company.length() &gt; 35"><set field="company" from="company.substring(0, 35)"/></if>
 
             <!-- address fields -->
             <set field="street1" from="postalAddress.address1"/>
