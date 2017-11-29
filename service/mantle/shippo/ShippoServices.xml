@@ -380,7 +380,7 @@ along with this software (see the LICENSE.md file). If not, see
 
             <set field="carrierPartyId" from="routeSegment.carrierPartyId"/>
             <if condition="!carrierPartyId || carrierPartyId == '_NA_'"><message error="true">Carrier not set on shipment ${shipmentId}:${shipmentRouteSegmentSeqId}</message></if>
-            <set field="shipmentMethodEnumId" from="routeSegment.shipmentMethodEnumId"/>
+            <set field="shipmentMethodEnumId" from="shipmentMethodEnumId ?: routeSegment.shipmentMethodEnumId"/>
             <if condition="!shipmentMethodEnumId"><message error="true">Shipment method not set on shipment ${shipmentId}:${shipmentRouteSegmentSeqId}</message></if>
 
             <check-errors/>
@@ -472,7 +472,17 @@ along with this software (see the LICENSE.md file). If not, see
             </entity-find>
             <iterate list="packageRouteSegList" entry="packageRouteSeg">
                 <set field="shipmentPackageSeqId" from="packageRouteSeg.shipmentPackageSeqId"/>
-                <if condition="packageRouteSeg.gatewayLabelId"><message>Package ${shipmentPackageSeqId} in route segment ${shipmentRouteSegmentSeqId} already has Shippo label ${packageRouteSeg.gatewayLabelId}, skipping package</message><continue/></if>
+                <if condition="getReturnLabels"><then>
+                    <if condition="packageRouteSeg.returnGatewayLabelId || packageRouteSeg.returnLabelUrl">
+                        <message>Package ${shipmentPackageSeqId} in route segment ${shipmentRouteSegmentSeqId} already has return label ${packageRouteSeg.returnGatewayLabelId}, skipping package</message>
+                        <continue/>
+                    </if>
+                </then><else>
+                    <if condition="packageRouteSeg.gatewayLabelId || packageRouteSeg.labelUrl">
+                        <message>Package ${shipmentPackageSeqId} in route segment ${shipmentRouteSegmentSeqId} already has label ${packageRouteSeg.gatewayLabelId}, skipping package</message>
+                        <continue/>
+                    </if>
+                </else></if>
                 <entity-find-one entity-name="mantle.shipment.ShipmentPackage" value-field="shipmentPackage"/>
 
                 <!-- parcel -->
@@ -514,7 +524,7 @@ along with this software (see the LICENSE.md file). If not, see
                 <!-- assemble the full request Map -->
                 <set field="requestMap" from="[
                     shipment:[object_purpose:'PURCHASE', address_from:address_from, address_to:address_to, parcels:[parcel],
-                        extra:[reference_1:reference1, reference_2:reference2, bypass_address_validation:true]],
+                        extra:[reference_1:reference1, reference_2:reference2, bypass_address_validation:true, is_return:getReturnLabels]],
                     carrier_account:carrier_account, servicelevel_token:servicelevel_token, label_file_type:label_file_type, async:false]"/>
 
                 <!-- <log level="warn" message="Shippo transaction shipment ${shipmentId} request:\n${requestMap}"/> -->
@@ -550,18 +560,34 @@ along with this software (see the LICENSE.md file). If not, see
                         <set field="gatewayMessage" value="${gatewayMessage}(${messageObj.source}:${messageObj.code}) ${messageObj.text} "/>
                     </iterate>
                     <if condition="gatewayMessage.length() &gt; 255"><set field="gatewayMessage" from="gatewayMessage.substring(0,255)"/></if>
-                    <set field="packageRouteSeg.gatewayMessage" from="gatewayMessage"/>
+                    <if condition="getReturnLabels"><then>
+                        <set field="packageRouteSeg.returnGatewayMessage" from="gatewayMessage"/>
+                    </then><else>
+                        <set field="packageRouteSeg.gatewayMessage" from="gatewayMessage"/>
+                    </else></if>
                 </if>
                 <!-- always save results, whatever we got back -->
-                <set field="packageRouteSeg.gatewayStatus" from="responseMap.status"/>
-                <set field="packageRouteSeg.gatewayLabelId" from="responseMap.object_id"/>
-                <set field="packageRouteSeg.gatewayRateId" from="responseMap.rate?.object_id"/>
-                <set field="packageRouteSeg.estimatedAmount" from="responseMap.rate?.amount as BigDecimal"/>
-                <set field="packageRouteSeg.trackingStatusEnumId" value="ShTsUnknown"/>
-                <set field="packageRouteSeg.trackingCode" from="responseMap.tracking_number"/>
-                <set field="packageRouteSeg.trackingUrl" from="responseMap.tracking_url_provider"/>
-                <set field="packageRouteSeg.labelDate" from="ec.l10n.parseTimestamp(responseMap.object_created, 'yyyy-MM-dd\'T\'HH:mm:ss.SSSZ')"/>
-                <set field="packageRouteSeg.labelUrl" from="responseMap.label_url"/>
+                <if condition="getReturnLabels"><then>
+                    <set field="packageRouteSeg.returnGatewayStatus" from="responseMap.status"/>
+                    <set field="packageRouteSeg.returnGatewayLabelId" from="responseMap.object_id"/>
+                    <set field="packageRouteSeg.returnGatewayRateId" from="responseMap.rate?.object_id"/>
+                    <set field="packageRouteSeg.returnEstimatedAmount" from="responseMap.rate?.amount as BigDecimal"/>
+                    <set field="packageRouteSeg.returnTrackingStatusEnumId" value="ShTsUnknown"/>
+                    <set field="packageRouteSeg.returnTrackingCode" from="responseMap.tracking_number"/>
+                    <set field="packageRouteSeg.returnTrackingUrl" from="responseMap.tracking_url_provider"/>
+                    <set field="packageRouteSeg.returnLabelDate" from="ec.l10n.parseTimestamp(responseMap.object_created, 'yyyy-MM-dd\'T\'HH:mm:ss.SSSZ')"/>
+                    <set field="packageRouteSeg.returnLabelUrl" from="responseMap.label_url"/>
+                </then><else>
+                    <set field="packageRouteSeg.gatewayStatus" from="responseMap.status"/>
+                    <set field="packageRouteSeg.gatewayLabelId" from="responseMap.object_id"/>
+                    <set field="packageRouteSeg.gatewayRateId" from="responseMap.rate?.object_id"/>
+                    <set field="packageRouteSeg.estimatedAmount" from="responseMap.rate?.amount as BigDecimal"/>
+                    <set field="packageRouteSeg.trackingStatusEnumId" value="ShTsUnknown"/>
+                    <set field="packageRouteSeg.trackingCode" from="responseMap.tracking_number"/>
+                    <set field="packageRouteSeg.trackingUrl" from="responseMap.tracking_url_provider"/>
+                    <set field="packageRouteSeg.labelDate" from="ec.l10n.parseTimestamp(responseMap.object_created, 'yyyy-MM-dd\'T\'HH:mm:ss.SSSZ')"/>
+                    <set field="packageRouteSeg.labelUrl" from="responseMap.label_url"/>
+                </else></if>
                 <entity-update value-field="packageRouteSeg"/>
 
                 <if condition="responseMap.status != 'SUCCESS'">
