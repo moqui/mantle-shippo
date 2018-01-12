@@ -692,24 +692,97 @@ along with this software (see the LICENSE.md file). If not, see
                     <set field="packageRouteSeg.trackingCode" from="responseMap.tracking_number"/>
                 </if>
                 <!-- always save results, whatever we got back -->
-                <set field="packageRouteSeg.gatewayStatus" from="responseMap.status"/>
                 <set field="statusMap" from="responseMap.tracking_status"/>
                 <if condition="statusMap"><then>
-                    <set field="packageRouteSeg.trackingStatusEnumId" from="[UNKNOWN:'ShTsUnknown', DELIVERED:'ShTsDelivered',
+                    <set field="trackingStatusEnumId" from="[UNKNOWN:'ShTsUnknown', DELIVERED:'ShTsDelivered',
                         TRANSIT:'ShTsTransit', FAILURE:'ShTsFailure', RETURNED:'ShTsReturned'].get(statusMap.status)"/>
-                    <set field="packageRouteSeg.trackingStatusDate" from="ec.l10n.parseTimestamp(statusMap.status_date, 'yyyy-MM-dd\'T\'HH:mm:ss.SSSZ')"/>
+                    <set field="trackingStatusDate" from="ec.l10n.parseTimestamp(statusMap.status_date, 'yyyy-MM-dd\'T\'HH:mm:ss.SSSZ')"/>
 
-                    <message>Package ${shipmentPackageSeqId} tracking number ${responseMap.tracking_number} current status ${statusMap.status} on ${ec.l10n.format(packageRouteSeg.trackingStatusDate, null)}</message>
+                    <service-call name="update#mantle.shipment.ShipmentPackageRouteSeg" in-map="[shipmentId:packageRouteSeg.shipmentId,
+                            shipmentPackageSeqId:packageRouteSeg.shipmentPackageSeqId, shipmentRouteSegmentSeqId:packageRouteSeg.shipmentRouteSegmentSeqId,
+                            gatewayMessage:(statusMap.status_details ?: packageRouteSeg.gatewayMessage),
+                            trackingStatusEnumId:trackingStatusEnumId, trackingStatusDate:trackingStatusDate, trackingEta:responseMap.eta]"/>
+                    <message>Package ${shipmentPackageSeqId} tracking number ${responseMap.tracking_number} current status ${statusMap.status} on ${ec.l10n.format(trackingStatusDate, null)}</message>
                 </then><else>
                     <message>Package ${shipmentPackageSeqId} tracking number ${responseMap.tracking_number} current status unknown (not yet picked up by carrier)</message>
                 </else></if>
-                <entity-update value-field="packageRouteSeg"/>
 
                 <iterate list="responseMap.tracking_history" entry="historyMap">
                     <set field="trackingStatusDate" from="ec.l10n.parseTimestamp(historyMap.status_date, 'yyyy-MM-dd\'T\'HH:mm:ss.SSSZ')"/>
                     <message>History: (${historyMap.status}) ${historyMap.status_details} on ${ec.l10n.format(trackingStatusDate, null)}</message>
                 </iterate>
             </iterate>
+        </actions>
+    </service>
+    <service verb="update" noun="PackageTrack">
+        <description>Mounted as a REST API endpoint to receive Shippo Webhook calls</description>
+        <!-- See: https://goshippo.com/docs/webhooks and https://goshippo.com/docs/tracking -->
+        <!-- Webhook path (see shippo.rest.xml): /rest/s1/shippo/track -->
+        <!-- Local test:
+        curl -X POST -H "Content-Type: application/json" \
+             -d '{ "tracking_number":"92001901755477000000000012", "tracking_status":{ "status":"DELIVERED", "status_date":"2018-01-02T00:00:00Z", "status_details":"Test status update" } }' \
+             http://localhost:8080/rest/s1/shippo/track
+        -->
+        <in-parameters>
+            <parameter name="transaction"><description>For labels outside Shippo or in Shippo test messages this may be null</description></parameter>
+            <parameter name="carrier"><description>Should always be populated, Shippo's carrier ID</description></parameter>
+            <parameter name="tracking_number"/>
+            <parameter name="eta" type="Timestamp"><description>By docs should be in ISO format, ie 2016-07-23T00:00:00Z</description></parameter>
+            <parameter name="tracking_status" type="Map">
+                <parameter name="status"><description>May be: UNKNOWN, TRANSIT, DELIVERED, RETURNED, FAILURE</description></parameter>
+                <parameter name="status_date" type="Timestamp"/>
+                <parameter name="status_details"><description>Message with more details about status</description></parameter>
+            </parameter>
+        </in-parameters>
+        <actions>
+            <log message="Got Shippo tracking_update webhook call with: ${context}"/>
+
+            <if condition="!tracking_number"><log level="error" message="Got tracking_update call from Shippo with no tracking_number parameter"/></if>
+            <if condition="!transaction"><log message="Got tracking_update call from Shippo with no transaction parameter"/></if>
+            <if condition="!tracking_number &amp;&amp; !transaction"><return/></if>
+
+            <if condition="!tracking_status"><log level="error" message="Got tracking_update call from Shippo with no tracking_status map"/><return/></if>
+            <if condition="!tracking_status.status"><log level="error" message="Got tracking_update call from Shippo with no tracking_status.status field"/><return/></if>
+
+            <set field="shippoStatusMap" from="[UNKNOWN:'ShTsUnknown', DELIVERED:'ShTsDelivered', TRANSIT:'ShTsTransit', FAILURE:'ShTsFailure', RETURNED:'ShTsReturned']"/>
+
+            <!-- original label -->
+            <if condition="transaction">
+                <entity-find entity-name="mantle.shipment.ShipmentPackageRouteSeg" list="sprsList">
+                    <econdition field-name="gatewayLabelId" from="transaction"/></entity-find>
+            </if>
+            <if condition="tracking_number &amp;&amp; !sprsList">
+                <entity-find entity-name="mantle.shipment.ShipmentPackageRouteSeg" list="sprsList">
+                    <econdition field-name="trackingCode" from="tracking_number"/></entity-find>
+            </if>
+            <iterate list="sprsList" entry="sprs">
+                <service-call name="update#mantle.shipment.ShipmentPackageRouteSeg" in-map="[shipmentId:sprs.shipmentId,
+                        shipmentPackageSeqId:sprs.shipmentPackageSeqId, shipmentRouteSegmentSeqId:sprs.shipmentRouteSegmentSeqId,
+                        gatewayMessage:(tracking_status.status_details ?: sprs.gatewayMessage),
+                        trackingStatusEnumId:shippoStatusMap.get(tracking_status.status),
+                        trackingStatusDate:(tracking_status.status_date ?: ec.user.nowTimestamp), trackingEta:eta]"/>
+            </iterate>
+
+            <!-- return label, if no match for original label -->
+            <if condition="!sprsList">
+                <if condition="transaction">
+                    <entity-find entity-name="mantle.shipment.ShipmentPackageRouteSeg" list="sprsList">
+                        <econdition field-name="returnGatewayLabelId" from="transaction"/></entity-find>
+                </if>
+                <if condition="tracking_number &amp;&amp; !sprsList">
+                    <entity-find entity-name="mantle.shipment.ShipmentPackageRouteSeg" list="sprsList">
+                        <econdition field-name="returnTrackingCode" from="tracking_number"/></entity-find>
+                </if>
+                <iterate list="sprsList" entry="sprs">
+                    <service-call name="update#mantle.shipment.ShipmentPackageRouteSeg" in-map="[shipmentId:sprs.shipmentId,
+                            shipmentPackageSeqId:sprs.shipmentPackageSeqId, shipmentRouteSegmentSeqId:sprs.shipmentRouteSegmentSeqId,
+                            returnGatewayMessage:(tracking_status.status_details ?: sprs.gatewayMessage),
+                            returnTrackingStatusEnumId:shippoStatusMap.get(tracking_status.status),
+                            returnTrackingStatusDate:(tracking_status.status_date ?: ec.user.nowTimestamp)]"/>
+                </iterate>
+            </if>
+
+            <if condition="!sprsList"><log level="warn" message="No SPRS records found for Shippo tracking_update with transaction ${transaction} and tracking_number ${tracking_number}"/></if>
         </actions>
     </service>
 
