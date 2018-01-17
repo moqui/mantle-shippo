@@ -697,7 +697,7 @@ along with this software (see the LICENSE.md file). If not, see
                     <set field="trackingStatusEnumId" from="[UNKNOWN:'ShTsUnknown', DELIVERED:'ShTsDelivered',
                         TRANSIT:'ShTsTransit', FAILURE:'ShTsFailure', RETURNED:'ShTsReturned'].get(statusMap.status)"/>
                     <set field="trackingStatusDate" from="ec.l10n.parseTimestamp(statusMap.status_date, 'yyyy-MM-dd\'T\'HH:mm:ss.SSSZ')"/>
-                    <set field="originalEta" from="packageRouteSeg.trackingOrigEta ?: responseMap.original_eta"/>
+                    <set field="originalEta" from="packageRouteSeg.trackingOrigEta ?: responseMap.original_eta ?: responseMap.eta"/>
 
                     <service-call name="update#mantle.shipment.ShipmentPackageRouteSeg" in-map="[shipmentId:packageRouteSeg.shipmentId,
                             shipmentPackageSeqId:packageRouteSeg.shipmentPackageSeqId, shipmentRouteSegmentSeqId:packageRouteSeg.shipmentRouteSegmentSeqId,
@@ -722,7 +722,7 @@ along with this software (see the LICENSE.md file). If not, see
         <!-- Webhook path (see shippo.rest.xml): /rest/s1/shippo/track -->
         <!-- Local test:
         curl -X POST -H "Content-Type: application/json" \
-             -d '{ "tracking_number":"92055901755477000000000015", "eta":"2018-02-02T00:00:00Z", "original_eta":"2018-02-01T00:00:00Z", "tracking_status":{ "status":"DELIVERED", "status_date":"2018-01-02T00:00:00Z", "status_details":"Test status update" } }' \
+             -d '{ "tracking_number":"92055901755477000000000015", "eta":"2018-02-03T00:00:00Z", "original_eta":"2018-02-01T00:00:00Z", "tracking_status":{ "status":"DELIVERED", "status_date":"2018-01-02T00:00:00Z", "status_details":"Test status update" } }' \
              http://localhost:8080/rest/s1/shippo/track
         -->
         <in-parameters>
@@ -759,7 +759,7 @@ along with this software (see the LICENSE.md file). If not, see
                     <econdition field-name="trackingCode" from="tracking_number"/></entity-find>
             </if>
             <iterate list="sprsList" entry="sprs">
-                <set field="originalEta" from="sprs.trackingOrigEta ?: original_eta"/>
+                <set field="originalEta" from="sprs.trackingOrigEta ?: original_eta ?: eta"/>
                 <service-call name="update#mantle.shipment.ShipmentPackageRouteSeg" in-map="[shipmentId:sprs.shipmentId,
                         shipmentPackageSeqId:sprs.shipmentPackageSeqId, shipmentRouteSegmentSeqId:sprs.shipmentRouteSegmentSeqId,
                         gatewayMessage:(tracking_status.status_details ?: sprs.gatewayMessage),
