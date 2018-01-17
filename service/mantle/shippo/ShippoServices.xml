@@ -697,11 +697,13 @@ along with this software (see the LICENSE.md file). If not, see
                     <set field="trackingStatusEnumId" from="[UNKNOWN:'ShTsUnknown', DELIVERED:'ShTsDelivered',
                         TRANSIT:'ShTsTransit', FAILURE:'ShTsFailure', RETURNED:'ShTsReturned'].get(statusMap.status)"/>
                     <set field="trackingStatusDate" from="ec.l10n.parseTimestamp(statusMap.status_date, 'yyyy-MM-dd\'T\'HH:mm:ss.SSSZ')"/>
+                    <set field="originalEta" from="packageRouteSeg.trackingOrigEta ?: responseMap.original_eta"/>
 
                     <service-call name="update#mantle.shipment.ShipmentPackageRouteSeg" in-map="[shipmentId:packageRouteSeg.shipmentId,
                             shipmentPackageSeqId:packageRouteSeg.shipmentPackageSeqId, shipmentRouteSegmentSeqId:packageRouteSeg.shipmentRouteSegmentSeqId,
                             gatewayMessage:(statusMap.status_details ?: packageRouteSeg.gatewayMessage),
-                            trackingStatusEnumId:trackingStatusEnumId, trackingStatusDate:trackingStatusDate, trackingEta:responseMap.eta]"/>
+                            trackingStatusEnumId:trackingStatusEnumId, trackingStatusDate:trackingStatusDate,
+                            trackingEta:responseMap.eta, trackingOrigEta:originalEta]"/>
                     <message>Package ${shipmentPackageSeqId} tracking number ${responseMap.tracking_number} current status ${statusMap.status} on ${ec.l10n.format(trackingStatusDate, null)}</message>
                 </then><else>
                     <message>Package ${shipmentPackageSeqId} tracking number ${responseMap.tracking_number} current status unknown (not yet picked up by carrier)</message>
@@ -720,7 +722,7 @@ along with this software (see the LICENSE.md file). If not, see
         <!-- Webhook path (see shippo.rest.xml): /rest/s1/shippo/track -->
         <!-- Local test:
         curl -X POST -H "Content-Type: application/json" \
-             -d '{ "tracking_number":"92001901755477000000000012", "tracking_status":{ "status":"DELIVERED", "status_date":"2018-01-02T00:00:00Z", "status_details":"Test status update" } }' \
+             -d '{ "tracking_number":"92055901755477000000000015", "eta":"2018-02-02T00:00:00Z", "original_eta":"2018-02-01T00:00:00Z", "tracking_status":{ "status":"DELIVERED", "status_date":"2018-01-02T00:00:00Z", "status_details":"Test status update" } }' \
              http://localhost:8080/rest/s1/shippo/track
         -->
         <in-parameters>
@@ -728,6 +730,7 @@ along with this software (see the LICENSE.md file). If not, see
             <parameter name="carrier"><description>Should always be populated, Shippo's carrier ID</description></parameter>
             <parameter name="tracking_number"/>
             <parameter name="eta" type="Timestamp"><description>By docs should be in ISO format, ie 2016-07-23T00:00:00Z</description></parameter>
+            <parameter name="original_eta" type="Timestamp"><description>By docs should be in ISO format, ie 2016-07-23T00:00:00Z</description></parameter>
             <parameter name="tracking_status" type="Map">
                 <parameter name="status"><description>May be: UNKNOWN, TRANSIT, DELIVERED, RETURNED, FAILURE</description></parameter>
                 <parameter name="status_date" type="Timestamp"/>
@@ -756,11 +759,13 @@ along with this software (see the LICENSE.md file). If not, see
                     <econdition field-name="trackingCode" from="tracking_number"/></entity-find>
             </if>
             <iterate list="sprsList" entry="sprs">
+                <set field="originalEta" from="sprs.trackingOrigEta ?: original_eta"/>
                 <service-call name="update#mantle.shipment.ShipmentPackageRouteSeg" in-map="[shipmentId:sprs.shipmentId,
                         shipmentPackageSeqId:sprs.shipmentPackageSeqId, shipmentRouteSegmentSeqId:sprs.shipmentRouteSegmentSeqId,
                         gatewayMessage:(tracking_status.status_details ?: sprs.gatewayMessage),
                         trackingStatusEnumId:shippoStatusMap.get(tracking_status.status),
-                        trackingStatusDate:(tracking_status.status_date ?: ec.user.nowTimestamp), trackingEta:eta]"/>
+                        trackingStatusDate:(tracking_status.status_date ?: ec.user.nowTimestamp),
+                        trackingEta:eta, trackingOrigEta:originalEta]"/>
             </iterate>
 
             <!-- return label, if no match for original label -->
