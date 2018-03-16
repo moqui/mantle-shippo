@@ -741,7 +741,7 @@ along with this software (see the LICENSE.md file). If not, see
             <log message="Got Shippo tracking_update webhook call with: ${context}"/>
 
             <if condition="!tracking_number"><log level="error" message="Got tracking_update call from Shippo with no tracking_number parameter"/></if>
-            <if condition="!transaction"><log message="Got tracking_update call from Shippo with no transaction parameter"/></if>
+            <!-- <if condition="!transaction"><log message="Got tracking_update call from Shippo with no transaction parameter"/></if> -->
             <if condition="!tracking_number &amp;&amp; !transaction"><return/></if>
 
             <if condition="!tracking_status"><log level="error" message="Got tracking_update call from Shippo with no tracking_status map"/><return/></if>
