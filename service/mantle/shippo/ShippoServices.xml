@@ -722,7 +722,7 @@ along with this software (see the LICENSE.md file). If not, see
         <!-- Webhook path (see shippo.rest.xml): /rest/s1/shippo/track -->
         <!-- Local test:
         curl -X POST -H "Content-Type: application/json" \
-             -d '{ "tracking_number":"92055901755477000000000015", "eta":"2018-02-03T00:00:00Z", "original_eta":"2018-02-01T00:00:00Z", "tracking_status":{ "status":"DELIVERED", "status_date":"2018-01-02T00:00:00Z", "status_details":"Test status update" } }' \
+             -d '{ "tracking_number":"92055901755477000000000015", "eta":"2018-02-03T00:00:00Z", "original_eta":"2018-02-01T00:00:00Z", "tracking_status":{ "status":"DELIVERED", "substatus":"delivered", "status_date":"2018-01-02T00:00:00Z", "status_details":"Test status update" } }' \
              http://localhost:8080/rest/s1/shippo/track
         -->
         <in-parameters>
@@ -733,6 +733,7 @@ along with this software (see the LICENSE.md file). If not, see
             <parameter name="original_eta" type="Timestamp"><description>By docs should be in ISO format, ie 2016-07-23T00:00:00Z</description></parameter>
             <parameter name="tracking_status" type="Map">
                 <parameter name="status"><description>May be: UNKNOWN, TRANSIT, DELIVERED, RETURNED, FAILURE</description></parameter>
+                <parameter name="substatus"><description>For complete list see https://goshippo.com/docs/tracking#event-definitions</description></parameter>
                 <parameter name="status_date" type="Timestamp"/>
                 <parameter name="status_details"><description>Message with more details about status</description></parameter>
             </parameter>
@@ -763,7 +764,7 @@ along with this software (see the LICENSE.md file). If not, see
                 <service-call name="update#mantle.shipment.ShipmentPackageRouteSeg" in-map="[shipmentId:sprs.shipmentId,
                         shipmentPackageSeqId:sprs.shipmentPackageSeqId, shipmentRouteSegmentSeqId:sprs.shipmentRouteSegmentSeqId,
                         gatewayMessage:(tracking_status.status_details ?: sprs.gatewayMessage),
-                        trackingStatusEnumId:shippoStatusMap.get(tracking_status.status),
+                        trackingStatusEnumId:shippoStatusMap.get(tracking_status.status), trackingSubStatus:tracking_status.substatus,
                         trackingStatusDate:(tracking_status.status_date ?: ec.user.nowTimestamp),
                         trackingEta:eta, trackingOrigEta:originalEta]"/>
             </iterate>
@@ -783,6 +784,7 @@ along with this software (see the LICENSE.md file). If not, see
                             shipmentPackageSeqId:sprs.shipmentPackageSeqId, shipmentRouteSegmentSeqId:sprs.shipmentRouteSegmentSeqId,
                             returnGatewayMessage:(tracking_status.status_details ?: sprs.gatewayMessage),
                             returnTrackingStatusEnumId:shippoStatusMap.get(tracking_status.status),
+                            returnTrackingSubStatus:tracking_status.substatus,
                             returnTrackingStatusDate:(tracking_status.status_date ?: ec.user.nowTimestamp)]"/>
                 </iterate>
             </if>
