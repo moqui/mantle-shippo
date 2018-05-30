@@ -96,8 +96,10 @@ along with this software (see the LICENSE.md file). If not, see
             <set field="servicelevel_token" from="carrierShipmentMethod?.gatewayServiceCode"/>
             <if condition="!servicelevel_token"><return message="No Shippo service level code found for carrier ${carrierPartyId} method ${shipmentMethodEnumId}"/></if>
 
+            <!-- NOTE: because Shippo treats multiple parcels as a multi-piece shipment (only supported by UPS, FedEx?) do one call per package -->
             <!-- parcels -->
-            <set field="parcels" from="[]"/>
+            <set field="shippingTotal" from="0.0"/>
+            <set field="servicelevelMap" from="null"/>
             <iterate list="packageInfoList" entry="packageInfo">
                 <!-- parcel -->
                 <entity-find-one entity-name="mantle.shipment.ShipmentBoxType" value-field="boxType">
@@ -122,52 +124,50 @@ along with this software (see the LICENSE.md file). If not, see
 
                 <set field="parcel" from="[length:boxType.boxLength, width:boxType.boxWidth, height:boxType.boxHeight,
                             distance_unit:distance_unit, weight:weight, mass_unit:mass_unit, template:boxType.gatewayBoxId]"/>
-                <script>parcels.add(parcel)</script>
-            </iterate>
-            <if condition="!parcels"><return/></if>
+                <set field="parcels" from="[parcel]"/>
 
-            <!-- assemble the full request Map -->
-            <set field="requestMap" from="[address_from:address_from, address_to:address_to,
+                <!-- assemble the full request Map -->
+                <set field="requestMap" from="[address_from:address_from, address_to:address_to,
                     parcels:parcels, carrier_accounts:[carrier_account], async:false, extra:[bypass_address_validation:true]]"/>
-            <!-- NOTE: any way to pass servicelevel_token(s) to limit in advance? for now just filtering after -->
+                <!-- NOTE: any way to pass servicelevel_token(s) to limit in advance? for now just filtering after -->
 
-            <!-- <log level="warn" message="Shippo rate order ${orderId} request:\n${requestMap}"/> -->
+                <!-- <log level="warn" message="Shippo rate order ${orderId} request:\n${requestMap}"/> -->
 
-            <script><![CDATA[
-                org.moqui.util.RestClient restClient = ec.service.rest().method(org.moqui.util.RestClient.POST)
-                        .addHeader("Authorization", "ShippoToken ${apiToken}")
-                        .addHeader("Shippo-API-Version", "2017-03-29")
-                        .addHeader("Content-Type", "application/json").jsonObject(requestMap)
-                restClient.uri().protocol("https").host("api.goshippo.com").port(443).path("shipments").build()
-                org.moqui.util.RestClient.RestResponse restResponse = restClient.call()
-                if (restResponse.statusCode < 200 || restResponse.statusCode >= 300) {
-                    // based on code in Shippo Java client will return error message in plain text body
-                    String errMsg = restResponse.text()
-                    ec.logger.error("Shippo error response (${restResponse.statusCode}): ${errMsg}")
-                    ec.message.addMessage("Shippo API error")
-                    ec.message.addMessage(errMsg)
-                    return
-                }
-                responseMap = restResponse.jsonObject()
-            ]]></script>
+                <script><![CDATA[
+                    org.moqui.util.RestClient restClient = ec.service.rest().method(org.moqui.util.RestClient.POST)
+                            .addHeader("Authorization", "ShippoToken ${apiToken}")
+                            .addHeader("Shippo-API-Version", "2018-02-08")
+                            .addHeader("Content-Type", "application/json").jsonObject(requestMap)
+                    restClient.uri().protocol("https").host("api.goshippo.com").port(443).path("shipments").build()
+                    org.moqui.util.RestClient.RestResponse restResponse = restClient.call()
+                    if (restResponse.statusCode < 200 || restResponse.statusCode >= 300) {
+                        // based on code in Shippo Java client will return error message in plain text body
+                        String errMsg = restResponse.text()
+                        ec.logger.error("Shippo error response (${restResponse.statusCode}): ${errMsg}")
+                        ec.message.addMessage("Shippo API error")
+                        ec.message.addMessage(errMsg)
+                        return
+                    }
+                    responseMap = restResponse.jsonObject()
+                ]]></script>
 
-            <!-- <log level="warn" message="Shippo rate order ${orderId} response: ${responseMap}"/> -->
+                <!-- <log level="warn" message="Shippo rate order ${orderId} response: ${responseMap}"/> -->
 
-            <!-- show messages -->
-            <if condition="responseMap.messages"><iterate list="responseMap.messages" entry="messageObj">
-                <message>(${messageObj.source}:${messageObj.code}) ${messageObj.text}</message></iterate></if>
+                <!-- show messages -->
+                <if condition="responseMap.messages"><iterate list="responseMap.messages" entry="messageObj">
+                    <message>(${messageObj.source}:${messageObj.code}) ${messageObj.text}</message></iterate></if>
 
-            <if condition="responseMap.status != 'SUCCESS'"><message>Shippo rate status ${responseMap.status} for package</message></if>
-            
-            <!-- find the rate matching the servicelevel_token -->
-            <set field="shippingTotal" from="0.0"/>
-            <set field="servicelevelMap" from="null"/>
-            <iterate list="responseMap.rates" entry="rateMap">
-                <if condition="rateMap?.servicelevel?.token == servicelevel_token">
-                    <set field="shippingTotal" from="rateMap.amount as BigDecimal"/>
-                    <set field="servicelevelMap" from="rateMap.servicelevel"/>
-                    <break/>
-                </if>
+                <if condition="responseMap.status != 'SUCCESS'"><message>Shippo rate status ${responseMap.status} for package</message></if>
+
+                <!-- find the rate matching the servicelevel_token -->
+                <iterate list="responseMap.rates" entry="rateMap">
+                    <if condition="rateMap?.servicelevel?.token == servicelevel_token">
+                        <set field="curShippingTotal" from="rateMap.amount as BigDecimal"/>
+                        <set field="shippingTotal" from="shippingTotal + curShippingTotal"/>
+                        <set field="servicelevelMap" from="rateMap.servicelevel"/>
+                        <break/>
+                    </if>
+                </iterate>
             </iterate>
 
             <!-- create an OrderItem for it if applicable -->
@@ -267,8 +267,9 @@ along with this software (see the LICENSE.md file). If not, see
                 </if>
             </iterate>
 
+            <!-- NOTE: because Shippo treats multiple parcels as a multi-piece shipment (only supported by UPS, FedEx?) do one call per package -->
             <!-- parcels -->
-            <set field="parcels" from="[]"/>
+            <set field="requestMapList" from="[]"/>
             <iterate list="packageInfoList" entry="packageInfo">
                 <!-- parcel -->
                 <entity-find-one entity-name="mantle.shipment.ShipmentBoxType" value-field="boxType">
@@ -293,55 +294,80 @@ along with this software (see the LICENSE.md file). If not, see
 
                 <set field="parcel" from="[length:boxType.boxLength, width:boxType.boxWidth, height:boxType.boxHeight,
                             distance_unit:distance_unit, weight:weight, mass_unit:mass_unit, template:boxType.gatewayBoxId]"/>
-                <script>parcels.add(parcel)</script>
-            </iterate>
-            <if condition="!parcels"><return/></if>
+                <set field="parcels" from="[parcel]"/>
 
-            <!-- assemble the full request Map -->
-            <set field="requestMap" from="[address_from:address_from, address_to:address_to,
+                <!-- assemble the full request Map -->
+                <set field="requestMap" from="[address_from:address_from, address_to:address_to,
                     parcels:parcels, carrier_accounts:carrier_accounts, async:false, extra:[bypass_address_validation:true]]"/>
-            <!-- NOTE: any way to pass servicelevel_token(s) to limit in advance? for now just filtering after -->
+                <!-- NOTE: any way to pass servicelevel_token(s) to limit in advance? for now just filtering after -->
 
-            <!-- <log level="warn" message="Shippo bulk rates request:\n${requestMap}"/> -->
-
-            <script><![CDATA[
-                org.moqui.util.RestClient restClient = ec.service.rest().method(org.moqui.util.RestClient.POST)
-                        .addHeader("Authorization", "ShippoToken ${apiToken}")
-                        .addHeader("Shippo-API-Version", "2017-03-29")
-                        .addHeader("Content-Type", "application/json").jsonObject(requestMap)
-                restClient.uri().protocol("https").host("api.goshippo.com").port(443).path("shipments").build()
-                org.moqui.util.RestClient.RestResponse restResponse = restClient.call()
-                if (restResponse.statusCode < 200 || restResponse.statusCode >= 300) {
-                    // based on code in Shippo Java client will return error message in plain text body
-                    String errMsg = restResponse.text()
-                    ec.logger.error("Shippo error response (${restResponse.statusCode}): ${errMsg}")
-                    ec.message.addMessage("Shippo API error")
-                    ec.message.addMessage(errMsg)
-                    return
-                }
-                responseMap = restResponse.jsonObject()
-            ]]></script>
-
-            <!-- <log level="warn" message="Shippo bulk rates response: ${responseMap}"/> -->
-
-            <!-- show messages -->
-            <if condition="responseMap.messages"><iterate list="responseMap.messages" entry="messageObj">
-                <message>(${messageObj.source}:${messageObj.code}) ${messageObj.text}</message></iterate></if>
-
-            <if condition="responseMap.status != 'SUCCESS'">
-                <message>Shippo label status ${responseMap.status} for package</message></if>
-
-            <!-- find the rates matching the servicelevel_token -->
-            <set field="shippingRateInfoList" from="[]"/>
-            <iterate list="responseMap.rates" entry="rateMap">
-                <set field="carrierMethod" from="carrierMethodByServiceLevel.get(rateMap?.servicelevel?.token)"/>
-                <if condition="carrierMethod != null">
-                    <script>shippingRateInfoList.add([carrierPartyId:carrierMethod.carrierPartyId,
-                            shipmentMethodEnumId:carrierMethod.shipmentMethodEnumId, shippingTotal:rateMap.amount,
-                            currency:rateMap.currency, days:rateMap.days, durationTerms:rateMap.duration_terms,
-                            serviceName:rateMap.servicelevel.name, carrierImageUrl:rateMap.provider_image_75])</script>
-                </if>
+                <script>requestMapList.add(requestMap)</script>
             </iterate>
+            <if condition="!requestMapList"><set field="shippingRateInfoList" from="[]"/><return/></if>
+
+            <!-- do HTTP requests async with a Future -->
+            <set field="restClientFutureList" from="[]"/>
+            <iterate list="requestMapList" entry="requestMap">
+                <!-- <log level="warn" message="Shippo bulk rates request:\n${requestMap}"/> -->
+
+                <script><![CDATA[
+                    org.moqui.util.RestClient restClient = ec.service.rest().method(org.moqui.util.RestClient.POST)
+                            .addHeader("Authorization", "ShippoToken ${apiToken}")
+                            .addHeader("Shippo-API-Version", "2018-02-08")
+                            .addHeader("Content-Type", "application/json").jsonObject(requestMap)
+                    restClient.uri().protocol("https").host("api.goshippo.com").port(443).path("shipments").build()
+
+                    restClientFutureList.add(restClient.callFuture())
+                ]]></script>
+            </iterate>
+
+            <!-- iterate through Futures and get responses -->
+            <set field="rateInfoByServiceLevel" from="[:]"/>
+            <iterate list="restClientFutureList" entry="restClientFuture">
+                <script><![CDATA[
+                    org.moqui.util.RestClient.RestResponse restResponse = restClientFuture.get()
+                    if (restResponse.statusCode < 200 || restResponse.statusCode >= 300) {
+                        // based on code in Shippo Java client will return error message in plain text body
+                        String errMsg = restResponse.text()
+                        ec.logger.error("Shippo error response (${restResponse.statusCode}): ${errMsg}")
+                        ec.message.addMessage("Shippo API error")
+                        ec.message.addMessage(errMsg)
+                        return
+                    }
+                    responseMap = restResponse.jsonObject()
+                ]]></script>
+
+                <!-- <log level="warn" message="Shippo bulk rates response: ${responseMap}"/> -->
+
+                <!-- show messages -->
+                <if condition="responseMap.messages"><iterate list="responseMap.messages" entry="messageObj">
+                    <message>(${messageObj.source}:${messageObj.code}) ${messageObj.text}</message></iterate></if>
+
+                <if condition="responseMap.status != 'SUCCESS'">
+                    <message>Shippo label status ${responseMap.status} for package</message></if>
+
+                <!-- find the rates matching the servicelevel_token -->
+                <iterate list="responseMap.rates" entry="rateMap">
+                    <set field="serviceLevelToken" from="rateMap?.servicelevel?.token"/>
+                    <if condition="!serviceLevelToken"><continue/></if>
+                    <set field="carrierMethod" from="carrierMethodByServiceLevel.get(serviceLevelToken)"/>
+                    <if condition="carrierMethod != null">
+                        <set field="rateInfo" from="rateInfoByServiceLevel.get(serviceLevelToken)"/>
+                        <set field="rateAmount" from="rateMap.amount as BigDecimal"/>
+                        <if condition="rateInfo != null"><then>
+                            <set field="rateInfo.shippingTotal" from="rateInfo.shippingTotal + rateAmount"/>
+                        </then><else>
+                            <script>rateInfoByServiceLevel.put(serviceLevelToken, [carrierPartyId:carrierMethod.carrierPartyId,
+                                    shipmentMethodEnumId:carrierMethod.shipmentMethodEnumId, shippingTotal:rateAmount,
+                                    currency:rateMap.currency, days:rateMap.days, durationTerms:rateMap.duration_terms,
+                                    serviceName:rateMap.servicelevel.name, carrierImageUrl:rateMap.provider_image_75])</script>
+                        </else></if>
+                    </if>
+                </iterate>
+            </iterate>
+
+            <!-- the final list is the combined map values -->
+            <set field="shippingRateInfoList" from="new ArrayList(rateInfoByServiceLevel.values())"/>
         </actions>
     </service>
 
@@ -532,7 +558,7 @@ along with this software (see the LICENSE.md file). If not, see
                 <script><![CDATA[
                     org.moqui.util.RestClient restClient = ec.service.rest().method(org.moqui.util.RestClient.POST)
                             .addHeader("Authorization", "ShippoToken ${apiToken}")
-                            .addHeader("Shippo-API-Version", "2017-03-29")
+                            .addHeader("Shippo-API-Version", "2018-02-08")
                             .addHeader("Content-Type", "application/json").jsonObject(requestMap)
                     restClient.uri().protocol("https").host("api.goshippo.com").port(443).path("transactions").build()
                     org.moqui.util.RestClient.RestResponse restResponse = restClient.call()
@@ -618,7 +644,7 @@ along with this software (see the LICENSE.md file). If not, see
                 <script><![CDATA[
                     org.moqui.util.RestClient restClient = ec.service.rest().method(org.moqui.util.RestClient.POST)
                             .addHeader("Authorization", "ShippoToken ${apiToken}")
-                            .addHeader("Shippo-API-Version", "2017-03-29")
+                            .addHeader("Shippo-API-Version", "2018-02-08")
                             .addHeader("Content-Type", "application/json").jsonObject(requestMap)
                     restClient.uri().protocol("https").host("api.goshippo.com").port(443).path("refunds").build()
                     org.moqui.util.RestClient.RestResponse restResponse = restClient.call()
@@ -666,7 +692,7 @@ along with this software (see the LICENSE.md file). If not, see
                 <script><![CDATA[
                     org.moqui.util.RestClient restClient = ec.service.rest().method(org.moqui.util.RestClient.GET)
                             .addHeader("Authorization", "ShippoToken ${apiToken}")
-                            .addHeader("Shippo-API-Version", "2017-03-29")
+                            .addHeader("Shippo-API-Version", "2018-02-08")
                             .addHeader("Content-Type", "application/json")
                     restClient.uri().protocol("https").host("api.goshippo.com").port(443).path("transactions").path((String) packageRouteSeg.gatewayLabelId).build()
                     org.moqui.util.RestClient.RestResponse restResponse = restClient.call()
@@ -841,7 +867,7 @@ along with this software (see the LICENSE.md file). If not, see
             <script><![CDATA[
                 org.moqui.util.RestClient restClient = ec.service.rest().method(org.moqui.util.RestClient.POST)
                         .addHeader("Authorization", "ShippoToken ${apiToken}")
-                        .addHeader("Shippo-API-Version", "2017-03-29")
+                        .addHeader("Shippo-API-Version", "2018-02-08")
                         .addHeader("Content-Type", "application/json").jsonObject(addressMap)
                 restClient.uri().protocol("https").host("api.goshippo.com").port(443).path("addresses").build()
                 org.moqui.util.RestClient.RestResponse restResponse = restClient.call()
