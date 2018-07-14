@@ -447,11 +447,20 @@ along with this software (see the LICENSE.md file). If not, see
                     <set field="address_from" from="originAddrOut.addressMap"/>
                 </else></if>
             </then><else>
-                <message error="true">No destination address set on Shipment Route Segment ${shipmentId}:${shipmentRouteSegmentSeqId}</message>
+                <message error="true">No origin address set on Shipment Route Segment ${shipmentId}:${shipmentRouteSegmentSeqId}</message>
             </else></if>
 
             <!-- address_to -->
             <set field="destPostalContactMechId" from="routeSegment.destPostalContactMechId"/>
+            <if condition="!destPostalContactMechId &amp;&amp; routeSegment.destinationFacilityId">
+                <service-call name="mantle.facility.ContactServices.get#FacilityDefaultShipDest" out-map="facOriginOut"
+                        in-map="[facilityId:routeSegment.destinationFacilityId]"/>
+                <if condition="facOriginOut.postalContactMechId">
+                    <set field="destPostalContactMechId" from="facOriginOut.postalContactMechId"/>
+                    <set field="routeSegment.destPostalContactMechId" from="destPostalContactMechId"/>
+                    <entity-update value-field="routeSegment"/>
+                </if>
+            </if>
             <if condition="destPostalContactMechId"><then>
                 <entity-find-one entity-name="mantle.party.contact.PostalAddress" value-field="destPostalAddress">
                     <field-map field-name="contactMechId" from="destPostalContactMechId"/></entity-find-one>
@@ -916,7 +925,7 @@ along with this software (see the LICENSE.md file). If not, see
                     </entity-find>
                     <if condition="origFcmList">
                         <service-call name="mantle.facility.ContactServices.update#FacilityPostalAddress" out-map="paOut"
-                                in-map="paInMap + [facilityId:facilityId, expireCurrent:false]"/>
+                                in-map="paInMap + [facilityId:facilityId, expireCurrent:true]"/>
                         <set field="contactMechId" from="paOut.contactMechId"/>
                         <entity-find-one entity-name="mantle.party.contact.PostalAddress" value-field="postalAddress"/>
                     </if>
