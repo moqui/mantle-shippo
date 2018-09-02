@@ -437,14 +437,49 @@ along with this software (see the LICENSE.md file). If not, see
                         <field-map field-name="contactMechId" from="originPostalContactMechId"/></entity-find-one>
                 </if>
 
-                <entity-find-one entity-name="mantle.party.contact.ContactMech" value-field="originContactMech">
-                    <field-map field-name="contactMechId" from="originPostalContactMechId"/></entity-find-one>
-                <if condition="originPostalAddress.shipGatewayAddressId &amp;&amp; originContactMech.trustLevelEnumId in ['CmtlValid', 'CmtlVerified']"><then>
-                    <set field="address_from" from="originPostalAddress.shipGatewayAddressId"/>
+                <!-- If there is a ProductStore associated with the Shipment set name and/or company from it -->
+                <set field="overrideName" from="null"/>
+                <set field="overrideCompany" from="null"/>
+                <entity-find entity-name="mantle.shipment.ShipmentItemSource" list="shipmentItemSourceList" distinct="true">
+                    <econdition field-name="shipmentId"/><select-field field-name="orderId"/></entity-find>
+                <set field="orderIdSet" from="new HashSet(shipmentItemSourceList*.orderId)"/>
+                <if condition="orderIdSet">
+                    <entity-find entity-name="mantle.order.OrderHeader" list="orderHeaderList" distinct="true">
+                        <econdition field-name="orderId" operator="in" from="orderIdSet"/>
+                        <econdition field-name="productStoreId" operator="is-not-null"/>
+                        <select-field field-name="productStoreId"/>
+                    </entity-find>
+                    <set field="productStoreIdSet" from="new HashSet(orderHeaderList*.productStoreId)"/>
+                    <if condition="productStoreIdSet">
+                        <set field="productStoreId" from="productStoreIdSet.first()"/>
+                        <!-- NOTE: cached so do separately -->
+                        <entity-find entity-name="mantle.product.store.ProductStoreSetting" list="nameSettingList" cache="true">
+                            <date-filter/><econdition field-name="productStoreId"/>
+                            <econdition field-name="settingTypeEnumId" value="PsstShipLabelName"/>
+                            <order-by field-name="-fromDate"/>
+                        </entity-find>
+                        <set field="overrideName" from="nameSettingList ? nameSettingList[0].settingValue : null"/>
+                        <entity-find entity-name="mantle.product.store.ProductStoreSetting" list="companySettingList" cache="true">
+                            <date-filter/><econdition field-name="productStoreId"/>
+                            <econdition field-name="settingTypeEnumId" value="PsstShipLabelCompany"/>
+                            <order-by field-name="-fromDate"/>
+                        </entity-find>
+                        <set field="overrideCompany" from="companySettingList ? companySettingList[0].settingValue : null"/>
+                    </if>
+                </if>
+                <!-- now get origin address -->
+                <if condition="overrideName || overrideCompany"><then>
+                    <!-- TODO -->
                 </then><else>
-                    <service-call name="mantle.shippo.ShippoServices.get#AddressMap" out-map="originAddrOut"
-                            in-map="[postalAddress:originPostalAddress, partyId:fromPartyId]"/>
-                    <set field="address_from" from="originAddrOut.addressMap"/>
+                    <entity-find-one entity-name="mantle.party.contact.ContactMech" value-field="originContactMech">
+                        <field-map field-name="contactMechId" from="originPostalContactMechId"/></entity-find-one>
+                    <if condition="originPostalAddress.shipGatewayAddressId &amp;&amp; originContactMech.trustLevelEnumId in ['CmtlValid', 'CmtlVerified']"><then>
+                        <set field="address_from" from="originPostalAddress.shipGatewayAddressId"/>
+                    </then><else>
+                        <service-call name="mantle.shippo.ShippoServices.get#AddressMap" out-map="originAddrOut"
+                                in-map="[postalAddress:originPostalAddress, partyId:fromPartyId]"/>
+                        <set field="address_from" from="originAddrOut.addressMap"/>
+                    </else></if>
                 </else></if>
             </then><else>
                 <message error="true">No origin address set on Shipment Route Segment ${shipmentId}:${shipmentRouteSegmentSeqId}</message>
