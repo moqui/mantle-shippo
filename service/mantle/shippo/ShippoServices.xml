@@ -370,17 +370,17 @@ along with this software (see the LICENSE.md file). If not, see
             <set field="shippingRateInfoList" from="new ArrayList(rateInfoByServiceLevel.values())"/>
         </actions>
     </service>
-
-    <!-- ============================================= -->
-    <!-- ========== Shipping Label Services ========== -->
-    <!-- ============================================= -->
-
     <service verb="get" noun="ShippingRate">
         <implements service="mantle.shipment.CarrierServices.get#ShippingRate"/>
         <actions>
             <!-- TODO FUTURE: get rate from Shippo and save ID, change request#ShippingLabels to do transaction based on rate if set -->
         </actions>
     </service>
+
+    <!-- ============================================= -->
+    <!-- ========== Shipping Label Services ========== -->
+    <!-- ============================================= -->
+
     <service verb="request" noun="ShippingLabels">
         <implements service="mantle.shipment.CarrierServices.request#ShippingLabels"/>
         <actions>
@@ -469,7 +469,11 @@ along with this software (see the LICENSE.md file). If not, see
                 </if>
                 <!-- now get origin address -->
                 <if condition="overrideName || overrideCompany"><then>
-                    <!-- TODO -->
+                    <service-call name="mantle.shippo.ShippoServices.get#AddressMap" out-map="originAddrOut"
+                            in-map="[postalAddress:originPostalAddress, partyId:fromPartyId]"/>
+                    <set field="address_from" from="originAddrOut.addressMap"/>
+                    <set field="address_from.name" from="overrideName"/>
+                    <set field="address_from.company" from="overrideCompany"/>
                 </then><else>
                     <entity-find-one entity-name="mantle.party.contact.ContactMech" value-field="originContactMech">
                         <field-map field-name="contactMechId" from="originPostalContactMechId"/></entity-find-one>
