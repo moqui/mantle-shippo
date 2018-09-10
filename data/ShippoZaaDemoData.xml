@@ -13,6 +13,27 @@ along with this software (see the LICENSE.md file). If not, see
 <http://creativecommons.org/publicdomain/zero/1.0/>.
 -->
 <entity-facade-xml type="demo">
+
+    <!--
+    To use a carrier you must configure that carrier on Shippo through their webapp at:
+
+    https://app.goshippo.com/settings/carriers
+
+    Shippo has carrier accounts that are active by default for some carriers like USPS and DHL Express, but not others
+    like UPS and FedEx. They have documentation for setting up other carriers, such as these and other articles on their site:
+
+    https://support.goshippo.com/hc/en-us/articles/204781715-How-to-connect-your-UPS-account-with-Shippo
+    https://support.goshippo.com/hc/en-us/articles/201772745-How-to-find-your-FedEx-meter-number
+
+    To get the API Token (live or test) go to:
+
+    https://app.goshippo.com/settings/api
+
+    Once you have an API Token you can use curl as described below to get the ID for each carrier to put in the gatewayAccountId
+    field. In the example data below this is blank for UPS and FedEx and set to the defaults for DHLX and USPS, but those should be
+    queried and updated with the values returned by the API request through curl (or whatever you want to use for the API request).
+    -->
+
     <mantle.shipment.carrier.ShippingGatewayConfig shippingGatewayConfigId="SHIPPO_DEMO"
             shippingGatewayTypeEnumId="ShGtwyShippo" description="Shippo API Demo"
             getOrderRateServiceName="mantle.shippo.ShippoServices.get#OrderShippingRate"
@@ -40,6 +61,11 @@ along with this software (see the LICENSE.md file). If not, see
     <!-- used in mantle.shipment.CarrierServices ShipmentLabels services -->
     <moqui.security.UserGroupPreference userGroupId="ALL_USERS" preferenceKey="DefaultShipmentGatewayConfigId"
             preferenceValue="SHIPPO_DEMO"/>
+
+    <!-- example per org/vendor settings, used as defaults if not store; note that for screens like EditParty with no store or
+        vendor the Owner Party must be set to use these settings -->
+    <mantle.party.PartySetting partyId="ORG_ZIZI_RETAIL" partySettingTypeId="ValidateAddressGatewayConfigId" settingValue="SHIPPO_DEMO"/>
+    <mantle.party.PartySetting partyId="ORG_ZIZI_RETAIL" partySettingTypeId="DefaultShipmentGatewayConfigId" settingValue="SHIPPO_DEMO"/>
 
     <!-- example additional settings for POPC_DEFAULT store to use SHIPPO_DEMO gateway for USPS, UPS, FedEx:
     <mantle.product.store.ProductStore productStoreId="POPC_DEFAULT">
