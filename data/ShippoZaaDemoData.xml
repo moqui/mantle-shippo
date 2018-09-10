@@ -41,6 +41,27 @@ along with this software (see the LICENSE.md file). If not, see
     <moqui.security.UserGroupPreference userGroupId="ALL_USERS" preferenceKey="DefaultShipmentGatewayConfigId"
             preferenceValue="SHIPPO_DEMO"/>
 
+    <!-- example additional settings for POPC_DEFAULT store to use SHIPPO_DEMO gateway for USPS, UPS, FedEx:
+    <mantle.product.store.ProductStore productStoreId="POPC_DEFAULT">
+        <shipOptions carrierPartyId="_NA_" shipmentMethodEnumId="ShMthGround" sequenceNum="1"/>
+        <shipOptions carrierPartyId="USPS" shipmentMethodEnumId="ShMthGround" sequenceNum="5"/>
+        <shipOptions carrierPartyId="USPS" shipmentMethodEnumId="ShMthThirdDay" sequenceNum="6"/>
+        <shipOptions carrierPartyId="USPS" shipmentMethodEnumId="ShMthNextDay" sequenceNum="7"/>
+        <shipOptions carrierPartyId="UPS" shipmentMethodEnumId="ShMthGround" sequenceNum="11"/>
+        <shipOptions carrierPartyId="UPS" shipmentMethodEnumId="ShMthThirdDay" sequenceNum="12"/>
+        <shipOptions carrierPartyId="UPS" shipmentMethodEnumId="ShMthSecondDay" sequenceNum="13"/>
+        <shipOptions carrierPartyId="UPS" shipmentMethodEnumId="ShMthNextDay" sequenceNum="14"/>
+        <shipOptions carrierPartyId="FedEx" shipmentMethodEnumId="ShMthGround" sequenceNum="21"/>
+        <shipOptions carrierPartyId="FedEx" shipmentMethodEnumId="ShMthThirdDay" sequenceNum="22"/>
+        <shipOptions carrierPartyId="FedEx" shipmentMethodEnumId="ShMthSecondDay" sequenceNum="23"/>
+        <shipOptions carrierPartyId="FedEx" shipmentMethodEnumId="ShMthNextDay" sequenceNum="24"/>
+        <shippingGateways carrierPartyId="_NA_" shippingGatewayConfigId="NA_LOCAL"/>
+        <shippingGateways carrierPartyId="USPS" shippingGatewayConfigId="SHIPPO_DEMO"/>
+        <shippingGateways carrierPartyId="UPS" shippingGatewayConfigId="SHIPPO_DEMO"/>
+        <shippingGateways carrierPartyId="FedEx" shippingGatewayConfigId="SHIPPO_DEMO"/>
+    </mantle.product.store.ProductStore>
+    -->
+
     <!-- for other Shippo pre-configured box types see https://goshippo.com/docs/reference#parcel-templates -->
     <mantle.shipment.ShipmentBoxType shipmentBoxTypeId="USPS_SmFlat" description="USPS Small Flat Rate Box"
             dimensionUomId="LEN_in" boxLength="8.69" boxWidth="5.44" boxHeight="1.75" gatewayBoxId="USPS_SmallFlatRateBox"/>
