@@ -588,7 +588,18 @@ along with this software (see the LICENSE.md file). If not, see
                     <select-field field-name="orderId"/>
                 </entity-find>
                 <set field="orderIdSet" from="shipmentItemSourceList ? new TreeSet(shipmentItemSourceList*.orderId) : null"/>
-                <if condition="orderIdSet"><set field="reference1" value="${reference1} Order ${orderIdSet.join(', ')}"/></if>
+                <if condition="orderIdSet">
+                    <!-- if any order has a displayId use that instead -->
+                    <entity-find entity-name="mantle.order.OrderHeader" list="orderHeaderList">
+                        <econdition field-name="orderId" operator="in" from="orderIdSet"/>
+                        <econdition field-name="displayId" operator="is-not-null"/>
+                        <select-field field-name="orderId,displayId"/>
+                    </entity-find>
+                    <iterate list="orderHeaderList" entry="orderHeader">
+                        <script>if (orderHeader.displayId) { orderIdSet.remove(orderHeader.orderId); orderIdSet.add(orderHeader.displayId) }</script>
+                    </iterate>
+                    <set field="reference1" value="Order ${orderIdSet.join(', ')} ${reference1}"/>
+                </if>
                 <if condition="reference1.length() &gt; 50"><set field="reference1" from="reference1.substring(0, 50)"/></if>
 
                 <!-- reference_2 with otherPartyOrderId -->
