@@ -607,9 +607,17 @@ along with this software (see the LICENSE.md file). If not, see
                 <if condition="shipment.otherPartyOrderId"><set field="reference2" value="Your Order ${shipment.otherPartyOrderId}"/></if>
 
                 <!-- assemble the full request Map -->
+                <set field="extraMap" from="[reference_1:reference1, reference_2:reference2, bypass_address_validation:true, is_return:getReturnLabels]"/>
+                <if condition="shipment.signatureRequiredEnumId &amp;&amp; shipment.signatureRequiredEnumId != 'PsrNone'">
+                    <set field="signatureRequiredEnum" from="shipment.signatureRequiredEnum"/>
+                    <if condition="signatureRequiredEnum?.enumCode"><then>
+                        <set field="extraMap.signature_confirmation" from="signatureRequiredEnum.enumCode"/>
+                    </then><else>
+                        <log level="warn" message="Shipment ${shipmentId} has signatureRequiredEnumId ${shipment.signatureRequiredEnumId} and Enumeration has no enumCode, not setting Shippo extra.signature_confirmation"/>
+                    </else></if>
+                </if>
                 <set field="requestMap" from="[
-                    shipment:[object_purpose:'PURCHASE', address_from:address_from, address_to:address_to, parcels:[parcel],
-                        extra:[reference_1:reference1, reference_2:reference2, bypass_address_validation:true, is_return:getReturnLabels]],
+                    shipment:[object_purpose:'PURCHASE', address_from:address_from, address_to:address_to, parcels:[parcel], extra:extraMap],
                     carrier_account:carrier_account, servicelevel_token:servicelevel_token, label_file_type:label_file_type, async:false]"/>
 
                 <!-- <log level="warn" message="Shippo transaction shipment ${shipmentId} request:\n${requestMap}"/> -->
