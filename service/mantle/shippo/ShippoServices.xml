@@ -411,7 +411,7 @@ along with this software (see the LICENSE.md file). If not, see
 
             <check-errors/>
 
-            <set field="productStoreIdSet" from="null"/>
+            <set field="productStoreId" from="null"/>
             <entity-find entity-name="mantle.shipment.ShipmentItemSource" list="shipmentItemSourceList" distinct="true">
                 <econdition field-name="shipmentId"/><select-field field-name="orderId"/></entity-find>
             <set field="orderIdSet" from="new HashSet(shipmentItemSourceList*.orderId)"/>
@@ -422,6 +422,29 @@ along with this software (see the LICENSE.md file). If not, see
                     <select-field field-name="productStoreId"/>
                 </entity-find>
                 <set field="productStoreIdSet" from="new HashSet(orderHeaderList*.productStoreId)"/>
+                <set field="productStoreId" from="productStoreIdSet ? productStoreIdSet.first() : null"/>
+                <if condition="productStoreIdSet.size() &gt; 1">
+                    <message type="warning">For shipment ${shipmentId} found multiple ProductStores ${productStoreIdSet}, using ${productStoreId}</message>
+                </if>
+            </if>
+
+            <!-- If there is a ProductStore associated with the Shipment set name and/or company from it -->
+            <set field="overrideName" from="null"/>
+            <set field="overrideCompany" from="null"/>
+            <if condition="productStoreId">
+                <!-- NOTE: cached so do separately -->
+                <entity-find entity-name="mantle.product.store.ProductStoreSetting" list="nameSettingList" cache="true">
+                    <date-filter/><econdition field-name="productStoreId"/>
+                    <econdition field-name="settingTypeEnumId" value="PsstShipLabelName"/>
+                    <order-by field-name="-fromDate"/>
+                </entity-find>
+                <set field="overrideName" from="nameSettingList ? nameSettingList[0].settingValue : null"/>
+                <entity-find entity-name="mantle.product.store.ProductStoreSetting" list="companySettingList" cache="true">
+                    <date-filter/><econdition field-name="productStoreId"/>
+                    <econdition field-name="settingTypeEnumId" value="PsstShipLabelCompany"/>
+                    <order-by field-name="-fromDate"/>
+                </entity-find>
+                <set field="overrideCompany" from="companySettingList ? companySettingList[0].settingValue : null"/>
             </if>
 
             <!-- address_from -->
@@ -450,25 +473,6 @@ along with this software (see the LICENSE.md file). If not, see
                         <field-map field-name="contactMechId" from="originPostalContactMechId"/></entity-find-one>
                 </if>
 
-                <!-- If there is a ProductStore associated with the Shipment set name and/or company from it -->
-                <set field="overrideName" from="null"/>
-                <set field="overrideCompany" from="null"/>
-                <if condition="productStoreIdSet">
-                    <set field="productStoreId" from="productStoreIdSet.first()"/>
-                    <!-- NOTE: cached so do separately -->
-                    <entity-find entity-name="mantle.product.store.ProductStoreSetting" list="nameSettingList" cache="true">
-                        <date-filter/><econdition field-name="productStoreId"/>
-                        <econdition field-name="settingTypeEnumId" value="PsstShipLabelName"/>
-                        <order-by field-name="-fromDate"/>
-                    </entity-find>
-                    <set field="overrideName" from="nameSettingList ? nameSettingList[0].settingValue : null"/>
-                    <entity-find entity-name="mantle.product.store.ProductStoreSetting" list="companySettingList" cache="true">
-                        <date-filter/><econdition field-name="productStoreId"/>
-                        <econdition field-name="settingTypeEnumId" value="PsstShipLabelCompany"/>
-                        <order-by field-name="-fromDate"/>
-                    </entity-find>
-                    <set field="overrideCompany" from="companySettingList ? companySettingList[0].settingValue : null"/>
-                </if>
                 <!-- now get origin address -->
                 <if condition="overrideName || overrideCompany"><then>
                     <service-call name="mantle.shippo.ShippoServices.get#AddressMap" out-map="originAddrOut"
@@ -490,6 +494,25 @@ along with this software (see the LICENSE.md file). If not, see
             </then><else>
                 <message error="true">No origin address set on Shipment Route Segment ${shipmentId}:${shipmentRouteSegmentSeqId}</message>
             </else></if>
+
+            <!-- address_return - from routeSegment.returnPostalContactMechId or ProductStore.returnPostalContactMechId -->
+            <set field="address_return" from="null"/>
+            <set field="returnPostalContactMechId" from="routeSegment.returnPostalContactMechId"/>
+            <if condition="!returnPostalContactMechId &amp;&amp; productStoreId">
+                <entity-find-one entity-name="mantle.product.store.ProductStore" value-field="productStore"/>
+                <set field="returnPostalContactMechId" from="productStore?.returnPostalContactMechId"/>
+            </if>
+            <if condition="returnPostalContactMechId">
+                <entity-find-one entity-name="mantle.party.contact.PostalAddress" value-field="returnPostalAddress">
+                    <field-map field-name="contactMechId" from="returnPostalContactMechId"/></entity-find-one>
+
+                <!-- now get return address -->
+                <service-call name="mantle.shippo.ShippoServices.get#AddressMap" out-map="originAddrOut"
+                        in-map="[postalAddress:originPostalAddress, partyId:fromPartyId]"/>
+                <set field="address_return" from="originAddrOut.addressMap"/>
+                <if condition="overrideName"><set field="address_return.name" from="overrideName"/></if>
+                <if condition="overrideCompany"><set field="address_return.company" from="overrideCompany"/></if>
+            </if>
 
             <!-- address_to -->
             <set field="destPostalContactMechId" from="routeSegment.destPostalContactMechId"/>
@@ -620,19 +643,13 @@ along with this software (see the LICENSE.md file). If not, see
                     </else></if>
                 </if>
                 <!-- extra.billing from ProductStoreShippingGateway -->
-                <if condition="productStoreIdSet">
-                    <entity-find entity-name="mantle.product.store.ProductStoreShippingGateway" list="pssgList">
-                        <econdition field-name="productStoreId" operator="in" from="productStoreIdSet"/>
-                        <econdition field-name="carrierPartyId"/>
-                        <order-by field-name="productStoreId"/><!-- doesn't usually matter, should be only one store, but for consistency as more than one store for this is odd -->
-                    </entity-find>
-                    <iterate list="pssgList" entry="pssg">
-                        <if condition="pssg.billingType">
-                            <set field="extraMap.billing" from="[type:pssg.billingType, account:pssg.billingAccount,
-                                    zip:pssg.billingZip, country:pssg.billingCountry]"/>
-                            <break/>
-                        </if>
-                    </iterate>
+                <if condition="productStoreId">
+                    <entity-find-one entity-name="mantle.product.store.ProductStoreShippingGateway" value-field="pssg">
+                        <field-map field-name="productStoreId"/><field-map field-name="carrierPartyId"/></entity-find-one>
+                    <if condition="pssg.billingType">
+                        <set field="extraMap.billing" from="[type:pssg.billingType, account:pssg.billingAccount,
+                                zip:pssg.billingZip, country:pssg.billingCountry]"/>
+                    </if>
                 </if>
 
                 <!-- assemble the full request Map -->
@@ -640,7 +657,7 @@ along with this software (see the LICENSE.md file). If not, see
                     shipment:[object_purpose:'PURCHASE', address_from:address_from, address_to:address_to, parcels:[parcel], extra:extraMap],
                     carrier_account:carrier_account, servicelevel_token:servicelevel_token, label_file_type:label_file_type, async:false]"/>
 
-                <!-- <log level="warn" message="Shippo transaction shipment ${shipmentId} request:\n${requestMap}"/> -->
+                <log level="warn" message="Shippo transaction shipment ${shipmentId} package ${packageRouteSeg.shipmentPackageSeqId} request:\n${requestMap}"/>
 
                 <script><![CDATA[
                     org.moqui.util.RestClient restClient = ec.service.rest().method(org.moqui.util.RestClient.POST)
