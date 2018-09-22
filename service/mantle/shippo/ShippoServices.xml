@@ -411,6 +411,19 @@ along with this software (see the LICENSE.md file). If not, see
 
             <check-errors/>
 
+            <set field="productStoreIdSet" from="null"/>
+            <entity-find entity-name="mantle.shipment.ShipmentItemSource" list="shipmentItemSourceList" distinct="true">
+                <econdition field-name="shipmentId"/><select-field field-name="orderId"/></entity-find>
+            <set field="orderIdSet" from="new HashSet(shipmentItemSourceList*.orderId)"/>
+            <if condition="orderIdSet">
+                <entity-find entity-name="mantle.order.OrderHeader" list="orderHeaderList" distinct="true">
+                    <econdition field-name="orderId" operator="in" from="orderIdSet"/>
+                    <econdition field-name="productStoreId" operator="is-not-null"/>
+                    <select-field field-name="productStoreId"/>
+                </entity-find>
+                <set field="productStoreIdSet" from="new HashSet(orderHeaderList*.productStoreId)"/>
+            </if>
+
             <!-- address_from -->
             <set field="originPostalContactMechId" from="routeSegment.originPostalContactMechId"/>
             <if condition="!originPostalContactMechId &amp;&amp; routeSegment.originFacilityId">
@@ -440,32 +453,21 @@ along with this software (see the LICENSE.md file). If not, see
                 <!-- If there is a ProductStore associated with the Shipment set name and/or company from it -->
                 <set field="overrideName" from="null"/>
                 <set field="overrideCompany" from="null"/>
-                <entity-find entity-name="mantle.shipment.ShipmentItemSource" list="shipmentItemSourceList" distinct="true">
-                    <econdition field-name="shipmentId"/><select-field field-name="orderId"/></entity-find>
-                <set field="orderIdSet" from="new HashSet(shipmentItemSourceList*.orderId)"/>
-                <if condition="orderIdSet">
-                    <entity-find entity-name="mantle.order.OrderHeader" list="orderHeaderList" distinct="true">
-                        <econdition field-name="orderId" operator="in" from="orderIdSet"/>
-                        <econdition field-name="productStoreId" operator="is-not-null"/>
-                        <select-field field-name="productStoreId"/>
+                <if condition="productStoreIdSet">
+                    <set field="productStoreId" from="productStoreIdSet.first()"/>
+                    <!-- NOTE: cached so do separately -->
+                    <entity-find entity-name="mantle.product.store.ProductStoreSetting" list="nameSettingList" cache="true">
+                        <date-filter/><econdition field-name="productStoreId"/>
+                        <econdition field-name="settingTypeEnumId" value="PsstShipLabelName"/>
+                        <order-by field-name="-fromDate"/>
                     </entity-find>
-                    <set field="productStoreIdSet" from="new HashSet(orderHeaderList*.productStoreId)"/>
-                    <if condition="productStoreIdSet">
-                        <set field="productStoreId" from="productStoreIdSet.first()"/>
-                        <!-- NOTE: cached so do separately -->
-                        <entity-find entity-name="mantle.product.store.ProductStoreSetting" list="nameSettingList" cache="true">
-                            <date-filter/><econdition field-name="productStoreId"/>
-                            <econdition field-name="settingTypeEnumId" value="PsstShipLabelName"/>
-                            <order-by field-name="-fromDate"/>
-                        </entity-find>
-                        <set field="overrideName" from="nameSettingList ? nameSettingList[0].settingValue : null"/>
-                        <entity-find entity-name="mantle.product.store.ProductStoreSetting" list="companySettingList" cache="true">
-                            <date-filter/><econdition field-name="productStoreId"/>
-                            <econdition field-name="settingTypeEnumId" value="PsstShipLabelCompany"/>
-                            <order-by field-name="-fromDate"/>
-                        </entity-find>
-                        <set field="overrideCompany" from="companySettingList ? companySettingList[0].settingValue : null"/>
-                    </if>
+                    <set field="overrideName" from="nameSettingList ? nameSettingList[0].settingValue : null"/>
+                    <entity-find entity-name="mantle.product.store.ProductStoreSetting" list="companySettingList" cache="true">
+                        <date-filter/><econdition field-name="productStoreId"/>
+                        <econdition field-name="settingTypeEnumId" value="PsstShipLabelCompany"/>
+                        <order-by field-name="-fromDate"/>
+                    </entity-find>
+                    <set field="overrideCompany" from="companySettingList ? companySettingList[0].settingValue : null"/>
                 </if>
                 <!-- now get origin address -->
                 <if condition="overrideName || overrideCompany"><then>
@@ -606,8 +608,9 @@ along with this software (see the LICENSE.md file). If not, see
                 <set field="reference2" value=""/>
                 <if condition="shipment.otherPartyOrderId"><set field="reference2" value="Your Order ${shipment.otherPartyOrderId}"/></if>
 
-                <!-- assemble the full request Map -->
+                <!-- assemble the extra Map -->
                 <set field="extraMap" from="[reference_1:reference1, reference_2:reference2, bypass_address_validation:true, is_return:getReturnLabels]"/>
+                <!-- extra.signature_confirmation -->
                 <if condition="shipment.signatureRequiredEnumId &amp;&amp; shipment.signatureRequiredEnumId != 'PsrNone'">
                     <set field="signatureRequiredEnum" from="shipment.signatureRequiredEnum"/>
                     <if condition="signatureRequiredEnum?.enumCode"><then>
@@ -616,6 +619,23 @@ along with this software (see the LICENSE.md file). If not, see
                         <log level="warn" message="Shipment ${shipmentId} has signatureRequiredEnumId ${shipment.signatureRequiredEnumId} and Enumeration has no enumCode, not setting Shippo extra.signature_confirmation"/>
                     </else></if>
                 </if>
+                <!-- extra.billing from ProductStoreShippingGateway -->
+                <if condition="productStoreIdSet">
+                    <entity-find entity-name="mantle.product.store.ProductStoreShippingGateway" list="pssgList">
+                        <econdition field-name="productStoreId" operator="in" from="productStoreIdSet"/>
+                        <econdition field-name="carrierPartyId"/>
+                        <order-by field-name="productStoreId"/><!-- doesn't usually matter, should be only one store, but for consistency as more than one store for this is odd -->
+                    </entity-find>
+                    <iterate list="pssgList" entry="pssg">
+                        <if condition="pssg.billingType">
+                            <set field="extraMap.billing" from="[type:pssg.billingType, account:pssg.billingAccount,
+                                    zip:pssg.billingZip, country:pssg.billingCountry]"/>
+                            <break/>
+                        </if>
+                    </iterate>
+                </if>
+
+                <!-- assemble the full request Map -->
                 <set field="requestMap" from="[
                     shipment:[object_purpose:'PURCHASE', address_from:address_from, address_to:address_to, parcels:[parcel], extra:extraMap],
                     carrier_account:carrier_account, servicelevel_token:servicelevel_token, label_file_type:label_file_type, async:false]"/>
