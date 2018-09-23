@@ -507,9 +507,9 @@ along with this software (see the LICENSE.md file). If not, see
                     <field-map field-name="contactMechId" from="returnPostalContactMechId"/></entity-find-one>
 
                 <!-- now get return address -->
-                <service-call name="mantle.shippo.ShippoServices.get#AddressMap" out-map="originAddrOut"
-                        in-map="[postalAddress:originPostalAddress, partyId:fromPartyId]"/>
-                <set field="address_return" from="originAddrOut.addressMap"/>
+                <service-call name="mantle.shippo.ShippoServices.get#AddressMap" out-map="returnAddrOut"
+                        in-map="[postalAddress:returnPostalAddress, partyId:fromPartyId]"/>
+                <set field="address_return" from="returnAddrOut.addressMap"/>
                 <if condition="overrideName"><set field="address_return.name" from="overrideName"/></if>
                 <if condition="overrideCompany"><set field="address_return.company" from="overrideCompany"/></if>
             </if>
@@ -652,12 +652,24 @@ along with this software (see the LICENSE.md file). If not, see
                     </if>
                 </if>
 
-                <!-- assemble the full request Map -->
-                <set field="requestMap" from="[
-                    shipment:[object_purpose:'PURCHASE', address_from:address_from, address_to:address_to, parcels:[parcel], extra:extraMap],
-                    carrier_account:carrier_account, servicelevel_token:servicelevel_token, label_file_type:label_file_type, async:false]"/>
+                <!-- assemble the shipment Map -->
+                <!-- NOTE: Shippo returns an error like 'The address_return may not be set when a return_of is specified' if address_return is used, so use address_return if there is one for address_from if getReturnLabels -->
+                <if condition="getReturnLabels"><then>
+                    <if condition="address_return"><then>
+                        <set field="shipmentMap" from="[object_purpose:'PURCHASE', address_from:address_return, address_to:address_to, parcels:[parcel], extra:extraMap]"/>
+                    </then><else>
+                        <set field="shipmentMap" from="[object_purpose:'PURCHASE', address_from:address_from, address_to:address_to, parcels:[parcel], extra:extraMap]"/>
+                    </else></if>
+                </then><else>
+                    <set field="shipmentMap" from="[object_purpose:'PURCHASE', address_from:address_from, address_to:address_to, parcels:[parcel], extra:extraMap]"/>
+                    <if condition="address_return"><set field="shipmentMap.address_return" from="address_return"/></if>
+                </else></if>
 
-                <log level="warn" message="Shippo transaction shipment ${shipmentId} package ${packageRouteSeg.shipmentPackageSeqId} request:\n${requestMap}"/>
+                <!-- assemble the full request Map -->
+                <set field="requestMap" from="[shipment:shipmentMap, carrier_account:carrier_account,
+                        servicelevel_token:servicelevel_token, label_file_type:label_file_type, async:false]"/>
+
+                <!-- <log level="warn" message="Shippo transaction shipment ${shipmentId} package ${packageRouteSeg.shipmentPackageSeqId} request:\n${requestMap}"/> -->
 
                 <script><![CDATA[
                     org.moqui.util.RestClient restClient = ec.service.rest().method(org.moqui.util.RestClient.POST)
