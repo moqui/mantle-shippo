@@ -654,7 +654,7 @@ along with this software (see the LICENSE.md file). If not, see
                 <if condition="productStoreId">
                     <entity-find-one entity-name="mantle.product.store.ProductStoreShippingGateway" value-field="pssg">
                         <field-map field-name="productStoreId"/><field-map field-name="carrierPartyId"/></entity-find-one>
-                    <if condition="pssg.billingType">
+                    <if condition="pssg?.billingType">
                         <set field="extraMap.billing" from="[type:pssg.billingType, account:pssg.billingAccount,
                                 zip:pssg.billingZip, country:pssg.billingCountry]"/>
                     </if>
