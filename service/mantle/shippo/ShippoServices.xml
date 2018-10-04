@@ -399,17 +399,25 @@ along with this software (see the LICENSE.md file). If not, see
             <entity-find-one entity-name="mantle.shipment.ShipmentRouteSegment" value-field="routeSegment"/>
             <if condition="routeSegment == null"><return error="true" message="Shipment Route Segment not found with ID ${shipmentId}:${shipmentRouteSegmentSeqId}"/></if>
 
+            <set field="hasIssues" from="false"/>
             <set field="fromPartyId" from="shipment.fromPartyId"/>
-            <if condition="!fromPartyId"><message error="true">From party not set on shipment ${shipmentId}</message></if>
+            <if condition="!fromPartyId"><set field="hasIssues" from="true"/>
+                <message type="danger">From party not set on shipment ${shipmentId}</message></if>
             <set field="toPartyId" from="shipment.toPartyId"/>
-            <if condition="!toPartyId"><message error="true">To party not set on shipment ${shipmentId}</message></if>
+            <if condition="!toPartyId"><set field="hasIssues" from="true"/>
+                <message type="danger">To party not set on shipment ${shipmentId}</message></if>
 
             <set field="carrierPartyId" from="routeSegment.carrierPartyId"/>
-            <if condition="!carrierPartyId || carrierPartyId == '_NA_'"><message error="true">Carrier not set on shipment ${shipmentId}:${shipmentRouteSegmentSeqId}</message></if>
+            <if condition="!carrierPartyId || carrierPartyId == '_NA_'"><set field="hasIssues" from="true"/>
+                <message type="danger">Carrier not set on shipment ${shipmentId}:${shipmentRouteSegmentSeqId}</message></if>
             <set field="shipmentMethodEnumId" from="shipmentMethodEnumId ?: routeSegment.shipmentMethodEnumId"/>
-            <if condition="!shipmentMethodEnumId"><message error="true">Shipment method not set on shipment ${shipmentId}:${shipmentRouteSegmentSeqId}</message></if>
+            <if condition="!shipmentMethodEnumId"><set field="hasIssues" from="true"/>
+                <message type="danger">Shipment method not set on shipment ${shipmentId}:${shipmentRouteSegmentSeqId}</message></if>
 
-            <check-errors/>
+            <if condition="hasIssues">
+                <message type="danger">Issues found, not requesting Shippo labels</message>
+                <return/>
+            </if>
 
             <set field="productStoreId" from="null"/>
             <entity-find entity-name="mantle.shipment.ShipmentItemSource" list="shipmentItemSourceList" distinct="true">
