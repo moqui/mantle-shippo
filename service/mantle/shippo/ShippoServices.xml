@@ -59,7 +59,7 @@ along with this software (see the LICENSE.md file). If not, see
                 <set field="address_from" from="originPostalAddress.shipGatewayAddressId"/>
             </then><else>
                 <service-call name="mantle.shippo.ShippoServices.get#AddressMap" out-map="originAddrOut"
-                        in-map="[postalAddress:originPostalAddress, partyId:fromPartyId]"/>
+                        in-map="[postalAddress:originPostalAddress, partyId:fromPartyId, isOrigin:true]"/>
                 <set field="address_from" from="originAddrOut.addressMap"/>
             </else></if>
 
@@ -84,7 +84,7 @@ along with this software (see the LICENSE.md file). If not, see
                 <set field="address_to" from="destPostalAddress.shipGatewayAddressId"/>
             </then><else>
                 <service-call name="mantle.shippo.ShippoServices.get#AddressMap" out-map="destAddrOut"
-                        in-map="[postalAddress:destPostalAddress, partyId:toPartyId]"/>
+                        in-map="[postalAddress:destPostalAddress, partyId:toPartyId, isOrigin:false]"/>
                 <set field="address_to" from="destAddrOut.addressMap"/>
             </else></if>
 
@@ -217,7 +217,7 @@ along with this software (see the LICENSE.md file). If not, see
                 <set field="address_from" from="originPostalAddress.shipGatewayAddressId"/>
             </then><else>
                 <service-call name="mantle.shippo.ShippoServices.get#AddressMap" out-map="originAddrOut"
-                        in-map="[postalAddress:originPostalAddress, partyId:fromPartyId]"/>
+                        in-map="[postalAddress:originPostalAddress, partyId:fromPartyId, isOrigin:true]"/>
                 <set field="address_from" from="originAddrOut.addressMap"/>
             </else></if>
 
@@ -240,7 +240,7 @@ along with this software (see the LICENSE.md file). If not, see
                 <set field="address_to" from="destPostalAddress.shipGatewayAddressId"/>
             </then><else>
                 <service-call name="mantle.shippo.ShippoServices.get#AddressMap" out-map="destAddrOut"
-                        in-map="[postalAddress:destPostalAddress, partyId:toPartyId]"/>
+                        in-map="[postalAddress:destPostalAddress, partyId:toPartyId, isOrigin:false]"/>
                 <set field="address_to" from="destAddrOut.addressMap"/>
             </else></if>
 
@@ -484,7 +484,7 @@ along with this software (see the LICENSE.md file). If not, see
                 <!-- now get origin address -->
                 <if condition="overrideName || overrideCompany"><then>
                     <service-call name="mantle.shippo.ShippoServices.get#AddressMap" out-map="originAddrOut"
-                            in-map="[postalAddress:originPostalAddress, partyId:fromPartyId]"/>
+                            in-map="[postalAddress:originPostalAddress, partyId:fromPartyId, isOrigin:true]"/>
                     <set field="address_from" from="originAddrOut.addressMap"/>
                     <set field="address_from.name" from="overrideName"/>
                     <set field="address_from.company" from="overrideCompany"/>
@@ -495,7 +495,7 @@ along with this software (see the LICENSE.md file). If not, see
                         <set field="address_from" from="originPostalAddress.shipGatewayAddressId"/>
                     </then><else>
                         <service-call name="mantle.shippo.ShippoServices.get#AddressMap" out-map="originAddrOut"
-                                in-map="[postalAddress:originPostalAddress, partyId:fromPartyId]"/>
+                                in-map="[postalAddress:originPostalAddress, partyId:fromPartyId, isOrigin:true]"/>
                         <set field="address_from" from="originAddrOut.addressMap"/>
                     </else></if>
                 </else></if>
@@ -516,7 +516,7 @@ along with this software (see the LICENSE.md file). If not, see
 
                 <!-- now get return address -->
                 <service-call name="mantle.shippo.ShippoServices.get#AddressMap" out-map="returnAddrOut"
-                        in-map="[postalAddress:returnPostalAddress, partyId:fromPartyId]"/>
+                        in-map="[postalAddress:returnPostalAddress, partyId:fromPartyId, isOrigin:false]"/>
                 <set field="address_return" from="returnAddrOut.addressMap"/>
                 <if condition="overrideName"><set field="address_return.name" from="overrideName"/></if>
                 <if condition="overrideCompany"><set field="address_return.company" from="overrideCompany"/></if>
@@ -549,11 +549,14 @@ along with this software (see the LICENSE.md file). If not, see
 
                 <entity-find-one entity-name="mantle.party.contact.ContactMech" value-field="destContactMech">
                     <field-map field-name="contactMechId" from="destPostalContactMechId"/></entity-find-one>
-                <if condition="destPostalAddress.shipGatewayAddressId &amp;&amp; destContactMech.trustLevelEnumId in ['CmtlValid', 'CmtlVerified']"><then>
+                <!-- NOTE: only use destPostalAddress.shipGatewayAddressId as object ID for address is CmtlValid or CmtlVerified
+                    and if has telecomContactMechId, if no phone want to default to other party's ship dest phone so label can be issued -->
+                <if condition="destPostalAddress.shipGatewayAddressId &amp;&amp; destPostalAddress.telecomContactMechId &amp;&amp;
+                        destContactMech.trustLevelEnumId in ['CmtlValid', 'CmtlVerified']"><then>
                     <set field="address_to" from="destPostalAddress.shipGatewayAddressId"/>
                 </then><else>
                     <service-call name="mantle.shippo.ShippoServices.get#AddressMap" out-map="destAddrOut"
-                            in-map="[postalAddress:destPostalAddress, partyId:toPartyId]"/>
+                            in-map="[postalAddress:destPostalAddress, partyId:toPartyId, otherPartyId:fromPartyId, isOrigin:false]"/>
                     <set field="address_to" from="destAddrOut.addressMap"/>
                 </else></if>
             </then><else>
@@ -1085,6 +1088,7 @@ along with this software (see the LICENSE.md file). If not, see
             <parameter name="postalAddress" type="EntityValue" required="true"/>
             <parameter name="partyId"/>
             <parameter name="isOrigin" type="Boolean" default="false"/>
+            <parameter name="otherPartyId"/>
         </in-parameters>
         <out-parameters><parameter name="addressMap" type="Map"/></out-parameters>
         <actions>
@@ -1137,6 +1141,14 @@ along with this software (see the LICENSE.md file). If not, see
                     <set field="telecomNumber" from="telecomInfo.telecomNumber"/>
                     <set field="postalAddress.telecomContactMechId" from="telecomNumber.contactMechId"/>
                     <entity-update value-field="postalAddress"/>
+                </if>
+            </if>
+            <if condition="telecomNumber == null &amp;&amp; otherPartyId &amp;&amp; !isOrigin">
+                <!-- for destination address if no phone default to 'PhoneShippingDest' purpose for otherParty (ship from party) -->
+                <service-call name="mantle.party.ContactServices.get#PartyContactInfo" out-map="telecomInfo" out-map-add-to-existing="false"
+                        in-map="[partyId:otherPartyId, telecomContactMechPurposeId:'PhoneShippingDest']"/>
+                <if condition="telecomInfo.telecomNumber != null">
+                    <set field="telecomNumber" from="telecomInfo.telecomNumber"/>
                 </if>
             </if>
             <if condition="telecomNumber != null">
