@@ -1130,19 +1130,39 @@ along with this software (see the LICENSE.md file). If not, see
                 <set field="fullZip" value="${postalAddress.postalCode}-${postalAddress.postalCodeExt}"/></if>
 
             <!-- phone number -->
+            <!-- from PostalAddress.telecomContactMechId, if one set -->
             <if condition="postalAddress.telecomContactMechId">
                 <entity-find-one entity-name="mantle.party.contact.TelecomNumber" value-field="telecomNumber">
                     <field-map field-name="contactMechId" from="postalAddress.telecomContactMechId"/></entity-find-one>
+                <if condition="telecomNumber != null">
+                    <service-call name="mantle.party.ContactServices.clean#TelecomNumber" out-map="tnCleanOut" out-map-add-to-existing="false"
+                            in-map="[countryCode:telecomNumber.countryCode, areaCode:telecomNumber.areaCode, contactNumber:telecomNumber.contactNumber]"/>
+                    <if condition="tnCleanOut.isValid != null &amp;&amp; !isValid">
+                        <log level="warn" message="Shippo for Party ${partyId} found invalid PostalAddress TelecomNumber ${telecomNumber.countryCode}-${telecomNumber.areaCode}-${telecomNumber.contactNumber}, not using"/>
+                        <set field="telecomNumber" from="null"/>
+                    </if>
+                </if>
             </if>
+            <!-- from Party's shipping origin (or dest) phone -->
             <if condition="telecomNumber == null &amp;&amp; partyId">
                 <service-call name="mantle.party.ContactServices.get#PartyContactInfo" out-map="telecomInfo"
                         in-map="[partyId:partyId, telecomContactMechPurposeId:(isOrigin ? 'PhoneShippingOrigin' : 'PhoneShippingDest')]"/>
                 <if condition="telecomInfo.telecomNumber != null">
                     <set field="telecomNumber" from="telecomInfo.telecomNumber"/>
-                    <set field="postalAddress.telecomContactMechId" from="telecomNumber.contactMechId"/>
-                    <entity-update value-field="postalAddress"/>
+                    <service-call name="mantle.party.ContactServices.clean#TelecomNumber" out-map="tnCleanOut" out-map-add-to-existing="false"
+                            in-map="[countryCode:telecomNumber.countryCode, areaCode:telecomNumber.areaCode, contactNumber:telecomNumber.contactNumber]"/>
+                    <if condition="tnCleanOut.isValid != null &amp;&amp; !isValid">
+                        <log level="warn" message="Shippo for Party ${partyId} found invalid Party TelecomNumber ${telecomNumber.countryCode}-${telecomNumber.areaCode}-${telecomNumber.contactNumber}, not using"/>
+                        <set field="telecomNumber" from="null"/>
+                    </if>
+
+                    <if condition="telecomNumber != null">
+                        <set field="postalAddress.telecomContactMechId" from="telecomNumber.contactMechId"/>
+                        <entity-update value-field="postalAddress"/>
+                    </if>
                 </if>
             </if>
+            <!-- special case to default to from Party's ship dest phone for outgoing shipments when to Party has none -->
             <if condition="telecomNumber == null &amp;&amp; otherPartyId &amp;&amp; !isOrigin">
                 <!-- for destination address if no phone default to 'PhoneShippingDest' purpose for otherParty (ship from party) -->
                 <service-call name="mantle.party.ContactServices.get#PartyContactInfo" out-map="telecomInfo" out-map-add-to-existing="false"
