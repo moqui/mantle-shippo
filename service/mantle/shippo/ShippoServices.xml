@@ -1137,7 +1137,7 @@ along with this software (see the LICENSE.md file). If not, see
                 <if condition="telecomNumber != null">
                     <service-call name="mantle.party.ContactServices.clean#TelecomNumber" out-map="tnCleanOut" out-map-add-to-existing="false"
                             in-map="[countryCode:telecomNumber.countryCode, areaCode:telecomNumber.areaCode, contactNumber:telecomNumber.contactNumber]"/>
-                    <if condition="tnCleanOut.isValid != null &amp;&amp; !isValid">
+                    <if condition="tnCleanOut.isValid != null &amp;&amp; !tnCleanOut.isValid">
                         <log level="warn" message="Shippo for Party ${partyId} found invalid PostalAddress TelecomNumber ${telecomNumber.countryCode}-${telecomNumber.areaCode}-${telecomNumber.contactNumber}, not using"/>
                         <set field="telecomNumber" from="null"/>
                     </if>
@@ -1151,7 +1151,7 @@ along with this software (see the LICENSE.md file). If not, see
                     <set field="telecomNumber" from="telecomInfo.telecomNumber"/>
                     <service-call name="mantle.party.ContactServices.clean#TelecomNumber" out-map="tnCleanOut" out-map-add-to-existing="false"
                             in-map="[countryCode:telecomNumber.countryCode, areaCode:telecomNumber.areaCode, contactNumber:telecomNumber.contactNumber]"/>
-                    <if condition="tnCleanOut.isValid != null &amp;&amp; !isValid">
+                    <if condition="tnCleanOut.isValid != null &amp;&amp; !tnCleanOut.isValid">
                         <log level="warn" message="Shippo for Party ${partyId} found invalid Party TelecomNumber ${telecomNumber.countryCode}-${telecomNumber.areaCode}-${telecomNumber.contactNumber}, not using"/>
                         <set field="telecomNumber" from="null"/>
                     </if>
