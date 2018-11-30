@@ -2,7 +2,6 @@
 
 [![license](http://img.shields.io/badge/license-CC0%201.0%20Universal-blue.svg)](https://github.com/moqui/mantle-shippo/blob/master/LICENSE.md)
 [![release](http://img.shields.io/github/release/moqui/mantle-shippo.svg)](https://github.com/moqui/mantle-shippo/releases)
-[![commits since release](http://img.shields.io/github/commits-since/moqui/mantle-shippo/v1.0.0.svg)](https://github.com/moqui/mantle-shippo/commits/master)
 
 Mantle USL integration with Shippo (goshippo.com) for address verification, shipping rates, labels, and tracking across a wide 
 variety of carriers including UPS, FedEx, DHL, USPS, and many more.
