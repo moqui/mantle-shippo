@@ -845,19 +845,26 @@ along with this software (see the LICENSE.md file). If not, see
                     <set field="packageRouteSeg.trackingCode" from="responseMap.tracking_number"/>
                 </if>
                 <!-- always save results, whatever we got back -->
-                <set field="statusMap" from="responseMap.tracking_status"/>
-                <if condition="statusMap"><then>
+                <set field="trackingStatus" from="responseMap.tracking_status"/>
+                <set field="statusMap" from="null"/>
+                <if condition="trackingStatus instanceof Map"><then>
+                    <set field="statusString" from="trackingStatus.status"/>
+                    <set field="statusMap" from="trackingStatus"/>
+                </then><else>
+                    <set field="statusString" from="trackingStatus?.toString()"/>
+                </else></if>
+                <if condition="statusString"><then>
                     <set field="trackingStatusEnumId" from="[UNKNOWN:'ShTsUnknown', DELIVERED:'ShTsDelivered',
-                        TRANSIT:'ShTsTransit', FAILURE:'ShTsFailure', RETURNED:'ShTsReturned'].get(statusMap.status)"/>
-                    <set field="trackingStatusDate" from="ec.l10n.parseTimestamp(statusMap.status_date, 'yyyy-MM-dd\'T\'HH:mm:ss.SSSZ')"/>
+                        TRANSIT:'ShTsTransit', FAILURE:'ShTsFailure', RETURNED:'ShTsReturned'].get(statusString)"/>
+                    <set field="trackingStatusDate" from="ec.l10n.parseTimestamp(statusMap?.status_date, 'yyyy-MM-dd\'T\'HH:mm:ss.SSSZ')"/>
                     <set field="originalEta" from="packageRouteSeg.trackingOrigEta ?: responseMap.original_eta ?: responseMap.eta"/>
 
                     <service-call name="update#mantle.shipment.ShipmentPackageRouteSeg" in-map="[shipmentId:packageRouteSeg.shipmentId,
                             shipmentPackageSeqId:packageRouteSeg.shipmentPackageSeqId, shipmentRouteSegmentSeqId:packageRouteSeg.shipmentRouteSegmentSeqId,
-                            gatewayMessage:(statusMap.status_details ?: packageRouteSeg.gatewayMessage),
+                            gatewayMessage:(statusMap?.status_details ?: packageRouteSeg.gatewayMessage),
                             trackingStatusEnumId:trackingStatusEnumId, trackingStatusDate:trackingStatusDate,
                             trackingEta:responseMap.eta, trackingOrigEta:originalEta]"/>
-                    <message>Package ${shipmentPackageSeqId} tracking number ${responseMap.tracking_number} current status ${statusMap.status} on ${ec.l10n.format(trackingStatusDate, null)}</message>
+                    <message>Package ${shipmentPackageSeqId} tracking number ${responseMap.tracking_number} current status ${statusString} on ${ec.l10n.format(trackingStatusDate, null)}</message>
                 </then><else>
                     <message>Package ${shipmentPackageSeqId} tracking number ${responseMap.tracking_number} current status unknown (not yet picked up by carrier)</message>
                 </else></if>
