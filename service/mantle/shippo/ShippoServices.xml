@@ -252,8 +252,10 @@ along with this software (see the LICENSE.md file). If not, see
                 <if condition="!carrierPartyIdSet.contains(carrierMethod.carrierPartyId)">
                     <entity-find-one entity-name="mantle.shipment.carrier.ShippingGatewayCarrier" value-field="gatewayCarrier" cache="true">
                         <field-map field-name="shippingGatewayConfigId"/><field-map field-name="carrierPartyId" from="carrierMethod.carrierPartyId"/></entity-find-one>
-                    <if condition="gatewayCarrier?.gatewayAccountId"><then><script>carrier_accounts.add(gatewayCarrier.gatewayAccountId)</script></then>
-                        <else><message>No gateway account ID found for carrier ${carrierMethod.carrierPartyId} in gateway ${shippingGatewayConfigId}</message></else></if>
+                    <if condition="gatewayCarrier?.gatewayAccountId">
+                        <then><script>carrier_accounts.add(gatewayCarrier.gatewayAccountId)</script></then>
+                        <else><!-- <message>No gateway account ID found for carrier ${carrierMethod.carrierPartyId} in gateway ${shippingGatewayConfigId}</message> --></else>
+                    </if>
                     <script>carrierPartyIdSet.add(carrierMethod.carrierPartyId)</script>
                 </if>
 
@@ -263,7 +265,7 @@ along with this software (see the LICENSE.md file). If not, see
                 </entity-find-one>
                 <if condition="carrierMethodValue?.gatewayServiceCode">
                     <then><script>carrierMethodByServiceLevel.put(carrierMethodValue.gatewayServiceCode, carrierMethodValue)</script></then>
-                    <else><message>No Shippo service level code found for carrier ${carrierMethod.carrierPartyId} method ${carrierMethod.shipmentMethodEnumId}</message></else>
+                    <else><!-- <message>No Shippo service level code found for carrier ${carrierMethod.carrierPartyId} method ${carrierMethod.shipmentMethodEnumId}</message> --></else>
                 </if>
             </iterate>
 
