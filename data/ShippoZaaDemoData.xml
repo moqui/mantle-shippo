@@ -54,6 +54,10 @@ along with this software (see the LICENSE.md file). If not, see
         <!-- set your Shippo API token (test or live) with a record like this -->
         <options optionEnumId="SgoApiToken" optionValue=""/>
         <options optionEnumId="SgoLabelType" optionValue="PDF_4x6"/>
+        <!-- use ShippingGatewayBoxType to override default gatewayBoxId on ShipmentBoxType -->
+        <boxTypes shipmentBoxTypeId="USPS_SmFlat" gatewayBoxId="USPS_SmallFlatRateBox"/>
+        <!-- use ShippingGatewayMethod to override default gatewayServiceCode on CarrierShipmentMethod -->
+        <methods carrierPartyId="USPS" shipmentMethodEnumId="ShMthGround" gatewayServiceCode="usps_first"/>
     </mantle.shipment.carrier.ShippingGatewayConfig>
     <!-- used in mantle.shipment.CarrierServices.validate#PostalAddress service -->
     <moqui.security.UserGroupPreference userGroupId="ALL_USERS" preferenceKey="ValidateAddressGatewayConfigId"
