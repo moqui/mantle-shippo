@@ -727,6 +727,7 @@ along with this software (see the LICENSE.md file). If not, see
                     <set field="packageRouteSeg.returnGatewayLabelId" from="responseMap.object_id"/>
                     <set field="packageRouteSeg.returnGatewayRateId" from="responseMap.rate?.object_id"/>
                     <set field="packageRouteSeg.returnEstimatedAmount" from="responseMap.rate?.amount as BigDecimal"/>
+                    <set field="packageRouteSeg.returnBaseAmount" from="responseMap.rate?.amount as BigDecimal"/>
                     <set field="packageRouteSeg.returnTrackingStatusEnumId" value="ShTsUnknown"/>
                     <set field="packageRouteSeg.returnTrackingCode" from="responseMap.tracking_number"/>
                     <set field="packageRouteSeg.returnTrackingUrl" from="responseMap.tracking_url_provider"/>
@@ -737,6 +738,7 @@ along with this software (see the LICENSE.md file). If not, see
                     <set field="packageRouteSeg.gatewayLabelId" from="responseMap.object_id"/>
                     <set field="packageRouteSeg.gatewayRateId" from="responseMap.rate?.object_id"/>
                     <set field="packageRouteSeg.estimatedAmount" from="responseMap.rate?.amount as BigDecimal"/>
+                    <set field="packageRouteSeg.baseAmount" from="responseMap.rate?.amount as BigDecimal"/>
                     <set field="packageRouteSeg.trackingStatusEnumId" value="ShTsUnknown"/>
                     <set field="packageRouteSeg.trackingCode" from="responseMap.tracking_number"/>
                     <set field="packageRouteSeg.trackingUrl" from="responseMap.tracking_url_provider"/>
