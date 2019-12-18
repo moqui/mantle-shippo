@@ -99,4 +99,105 @@ along with this software (see the LICENSE.md file). If not, see
         <shippingGateways carrierPartyId="FedEx" shippingGatewayConfigId="SHIPPO_DEMO"/>
     </mantle.product.store.ProductStore>
     -->
+
+    <!-- For other Shippo pre-configured box types see: https://goshippo.com/docs/reference#parcel-templates
+    <mantle.shipment.ShipmentBoxType shipmentBoxTypeId="USPS_SmallFlatRateBox" description="USPS Small Flat Rate Box"
+            dimensionUomId="LEN_in" boxLength="8.69" boxWidth="5.44" boxHeight="1.75" gatewayBoxId="USPS_SmallFlatRateBox"/>
+    <mantle.shipment.ShipmentBoxType shipmentBoxTypeId="USPS_MediumFlatRateBox1" description="USPS Medium Flat Rate Box 1"
+            dimensionUomId="LEN_in" boxLength="11.25" boxWidth="8.75" boxHeight="6" gatewayBoxId="USPS_MediumFlatRateBox1"/>
+    <mantle.shipment.ShipmentBoxType shipmentBoxTypeId="USPS_LargeFlatRateBox" description="USPS Large Flat Rate Box"
+            dimensionUomId="LEN_in" boxLength="12.25" boxWidth="12.25" boxHeight="6" gatewayBoxId="USPS_LargeFlatRateBox"/>
+    <mantle.shipment.ShipmentBoxType shipmentBoxTypeId="USPS_FlatRateCardboardEnvelope" description="USPS Flat Rate Cardboard Envelope"
+            dimensionUomId="LEN_in" boxLength="12.50" boxWidth="9.50" boxHeight="0.75" gatewayBoxId="USPS_FlatRateCardboardEnvelope"/>
+    <mantle.shipment.ShipmentBoxType shipmentBoxTypeId="USPS_FlatRateEnvelope" description="USPS Flat Rate Envelope"
+            dimensionUomId="LEN_in" boxLength="12.50" boxWidth="9.50" boxHeight="0.75" gatewayBoxId="USPS_FlatRateEnvelope"/>
+    <mantle.shipment.ShipmentBoxType shipmentBoxTypeId="USPS_FlatRateGiftCardEnvelope" description="USPS Flat Rate Gift Card Envelope"
+            dimensionUomId="LEN_in" boxLength="10.00" boxWidth="7.00" boxHeight="0.75" gatewayBoxId="USPS_FlatRateGiftCardEnvelope"/>
+    <mantle.shipment.ShipmentBoxType shipmentBoxTypeId="USPS_FlatRateLegalEnvelope" description="USPS Flat Rate Legal Envelope"
+            dimensionUomId="LEN_in" boxLength="15.00" boxWidth="9.50" boxHeight="0.75" gatewayBoxId="USPS_FlatRateLegalEnvelope"/>
+    <mantle.shipment.ShipmentBoxType shipmentBoxTypeId="USPS_FlatRatePaddedEnvelope" description="USPS Flat Rate Padded Envelope"
+            dimensionUomId="LEN_in" boxLength="12.50" boxWidth="9.50" boxHeight="1.00" gatewayBoxId="USPS_FlatRatePaddedEnvelope"/>
+    <mantle.shipment.ShipmentBoxType shipmentBoxTypeId="USPS_FlatRateWindowEnvelope" description="USPS Flat Rate Window Envelope"
+            dimensionUomId="LEN_in" boxLength="10.00" boxWidth="5.00" boxHeight="0.75" gatewayBoxId="USPS_FlatRateWindowEnvelope"/>
+    <mantle.shipment.ShipmentBoxType shipmentBoxTypeId="USPS_LargeFlatRateBoardGameBox" description="USPS Large Flat Rate Board Game Box"
+            dimensionUomId="LEN_in" boxLength="24.06" boxWidth="11.88" boxHeight="3.13" gatewayBoxId="USPS_LargeFlatRateBoardGameBox"/>
+    <mantle.shipment.ShipmentBoxType shipmentBoxTypeId="USPS_APOFlatRateBox" description="USPS APO/FPO/DPO Large Flat Rate Box"
+            dimensionUomId="LEN_in" boxLength="12.25" boxWidth="12.25" boxHeight="6.00" gatewayBoxId="USPS_APOFlatRateBox"/>
+    <mantle.shipment.ShipmentBoxType shipmentBoxTypeId="USPS_LargeVideoFlatRateBox" description="USPS Flat Rate Large Video Box (Int'l only)"
+            dimensionUomId="LEN_in" boxLength="9.60" boxWidth="6.40" boxHeight="2.20" gatewayBoxId="USPS_LargeVideoFlatRateBox"/>
+    <mantle.shipment.ShipmentBoxType shipmentBoxTypeId="USPS_MediumFlatRateBox2" description="USPS Medium Flat Rate Box 2"
+            dimensionUomId="LEN_in" boxLength="14.00" boxWidth="12.00" boxHeight="3.50" gatewayBoxId="USPS_MediumFlatRateBox2"/>
+    <mantle.shipment.ShipmentBoxType shipmentBoxTypeId="USPS_RegionalRateBoxA1" description="USPS Regional Rate Box A1"
+            dimensionUomId="LEN_in" boxLength="10.13" boxWidth="7.13" boxHeight="5.00" gatewayBoxId="USPS_RegionalRateBoxA1"/>
+    <mantle.shipment.ShipmentBoxType shipmentBoxTypeId="USPS_RegionalRateBoxA2" description="USPS Regional Rate Box A2"
+            dimensionUomId="LEN_in" boxLength="13.06" boxWidth="11.06" boxHeight="2.50" gatewayBoxId="USPS_RegionalRateBoxA2"/>
+    <mantle.shipment.ShipmentBoxType shipmentBoxTypeId="USPS_RegionalRateBoxB1" description="USPS Regional Rate Box B1"
+            dimensionUomId="LEN_in" boxLength="12.25" boxWidth="10.50" boxHeight="5.50" gatewayBoxId="USPS_RegionalRateBoxB1"/>
+    <mantle.shipment.ShipmentBoxType shipmentBoxTypeId="USPS_RegionalRateBoxB2" description="USPS Regional Rate Box B2"
+            dimensionUomId="LEN_in" boxLength="16.25" boxWidth="14.50" boxHeight="3.00" gatewayBoxId="USPS_RegionalRateBoxB2"/>
+    <mantle.shipment.ShipmentBoxType shipmentBoxTypeId="USPS_SmallFlatRateEnvelope" description="USPS Small Flat Rate Envelope"
+            dimensionUomId="LEN_in" boxLength="10.00" boxWidth="6.00" boxHeight="4.00" gatewayBoxId="USPS_SmallFlatRateEnvelope"/>
+
+    <mantle.shipment.ShipmentBoxType shipmentBoxTypeId="FedEx_Box_10kg" description="FedEx® 10kg Box"
+            dimensionUomId="LEN_in" boxLength="15.81" boxWidth="12.94" boxHeight="10.19" gatewayBoxId="FedEx_Box_10kg"/>
+    <mantle.shipment.ShipmentBoxType shipmentBoxTypeId="FedEx_Box_25kg" description="FedEx® 25kg Box"
+            dimensionUomId="LEN_in" boxLength="54.80" boxWidth="42.10" boxHeight="33.50" gatewayBoxId="FedEx_Box_25kg"/>
+    <mantle.shipment.ShipmentBoxType shipmentBoxTypeId="FedEx_Box_Extra_Large_1" description="FedEx® Extra Large Box (X1)"
+            dimensionUomId="LEN_in" boxLength="11.88" boxWidth="11.00" boxHeight="10.75" gatewayBoxId="FedEx_Box_Extra_Large_1"/>
+    <mantle.shipment.ShipmentBoxType shipmentBoxTypeId="FedEx_Box_Extra_Large_2" description="FedEx® Extra Large Box (X2)"
+            dimensionUomId="LEN_in" boxLength="15.75" boxWidth="14.13" boxHeight="6.00" gatewayBoxId="FedEx_Box_Extra_Large_2"/>
+    <mantle.shipment.ShipmentBoxType shipmentBoxTypeId="FedEx_Box_Large_1" description="FedEx® Large Box (L1)"
+            dimensionUomId="LEN_in" boxLength="17.50" boxWidth="12.38" boxHeight="3.00" gatewayBoxId="FedEx_Box_Large_1"/>
+    <mantle.shipment.ShipmentBoxType shipmentBoxTypeId="FedEx_Box_Large_2" description="FedEx® Large Box (L2)"
+            dimensionUomId="LEN_in" boxLength="11.25" boxWidth="8.75" boxHeight="7.75" gatewayBoxId="FedEx_Box_Large_2"/>
+    <mantle.shipment.ShipmentBoxType shipmentBoxTypeId="FedEx_Box_Medium_1" description="FedEx® Medium Box (M1)"
+            dimensionUomId="LEN_in" boxLength="13.25" boxWidth="11.50" boxHeight="2.38" gatewayBoxId="FedEx_Box_Medium_1"/>
+    <mantle.shipment.ShipmentBoxType shipmentBoxTypeId="FedEx_Box_Medium_2" description="FedEx® Medium Box (M2)"
+            dimensionUomId="LEN_in" boxLength="11.25" boxWidth="8.75" boxHeight="4.38" gatewayBoxId="FedEx_Box_Medium_2"/>
+    <mantle.shipment.ShipmentBoxType shipmentBoxTypeId="FedEx_Box_Small_1" description="FedEx® Small Box (S1)"
+            dimensionUomId="LEN_in" boxLength="12.38" boxWidth="10.88" boxHeight="1.50" gatewayBoxId="FedEx_Box_Small_1"/>
+    <mantle.shipment.ShipmentBoxType shipmentBoxTypeId="FedEx_Box_Small_2" description="FedEx® Small Box (S2)"
+            dimensionUomId="LEN_in" boxLength="11.25" boxWidth="8.75" boxHeight="4.38" gatewayBoxId="FedEx_Box_Small_2"/>
+    <mantle.shipment.ShipmentBoxType shipmentBoxTypeId="FedEx_Envelope" description="FedEx® Envelope"
+            dimensionUomId="LEN_in" boxLength="12.50" boxWidth="9.50" boxHeight="0.80" gatewayBoxId="FedEx_Envelope"/>
+    <mantle.shipment.ShipmentBoxType shipmentBoxTypeId="FedEx_Padded_Pak" description="FedEx® Padded Pak"
+            dimensionUomId="LEN_in" boxLength="11.75" boxWidth="14.75" boxHeight="2.00" gatewayBoxId="FedEx_Padded_Pak"/>
+    <mantle.shipment.ShipmentBoxType shipmentBoxTypeId="FedEx_Pak_1" description="FedEx® Large Pak"
+            dimensionUomId="LEN_in" boxLength="15.50" boxWidth="12.00" boxHeight="0.80" gatewayBoxId="FedEx_Pak_1"/>
+    <mantle.shipment.ShipmentBoxType shipmentBoxTypeId="FedEx_Pak_2" description="FedEx® Small Pak"
+            dimensionUomId="LEN_in" boxLength="12.75" boxWidth="10.25" boxHeight="0.80" gatewayBoxId="FedEx_Pak_2"/>
+    <mantle.shipment.ShipmentBoxType shipmentBoxTypeId="FedEx_Tube" description="FedEx® Tube"
+            dimensionUomId="LEN_in" boxLength="38.00" boxWidth="6.00" boxHeight="6.00" gatewayBoxId="FedEx_Tube"/>
+    <mantle.shipment.ShipmentBoxType shipmentBoxTypeId="FedEx_XL_Pak" description="FedEx® Extra Large Pak"
+            dimensionUomId="LEN_in" boxLength="17.50" boxWidth="20.75" boxHeight="2.00" gatewayBoxId="FedEx_XL_Pak"/>
+
+    <mantle.shipment.ShipmentBoxType shipmentBoxTypeId="UPS_Box_10kg" description="UPS Box 10kg"
+            dimensionUomId="LEN_mm" boxLength="410.00" boxWidth="335.00" boxHeight="265.00" gatewayBoxId="UPS_Box_10kg"/>
+    <mantle.shipment.ShipmentBoxType shipmentBoxTypeId="UPS_Box_25kg" description="UPS Box 25kg"
+            dimensionUomId="LEN_mm" boxLength="484.00" boxWidth="433.00" boxHeight="350.00" gatewayBoxId="UPS_Box_25kg"/>
+    <mantle.shipment.ShipmentBoxType shipmentBoxTypeId="UPS_Express_Box" description="UPS Express Box"
+            dimensionUomId="LEN_mm" boxLength="460.00" boxWidth="315.00" boxHeight="95.00" gatewayBoxId="UPS_Express_Box"/>
+    <mantle.shipment.ShipmentBoxType shipmentBoxTypeId="UPS_Express_Box_Large" description="UPS Express Box Large"
+            dimensionUomId="LEN_in" boxLength="18.00" boxWidth="13.00" boxHeight="3.00" gatewayBoxId="UPS_Express_Box_Large"/>
+    <mantle.shipment.ShipmentBoxType shipmentBoxTypeId="UPS_Express_Box_Medium" description="UPS Express Box Medium"
+            dimensionUomId="LEN_in" boxLength="15.00" boxWidth="11.00" boxHeight="3.00" gatewayBoxId="UPS_Express_Box_Medium"/>
+    <mantle.shipment.ShipmentBoxType shipmentBoxTypeId="UPS_Express_Box_Small" description="UPS Express Box Small"
+            dimensionUomId="LEN_in" boxLength="13.00" boxWidth="11.00" boxHeight="2.00" gatewayBoxId="UPS_Express_Box_Small"/>
+    <mantle.shipment.ShipmentBoxType shipmentBoxTypeId="UPS_Express_Envelope" description="UPS Express Envelope"
+            dimensionUomId="LEN_in" boxLength="12.50" boxWidth="9.50" boxHeight="2.00" gatewayBoxId="UPS_Express_Envelope"/>
+    <mantle.shipment.ShipmentBoxType shipmentBoxTypeId="UPS_Express_Hard_Pak" description="UPS Express Hard Pak"
+            dimensionUomId="LEN_in" boxLength="14.75" boxWidth="11.50" boxHeight="2.00" gatewayBoxId="UPS_Express_Hard_Pak"/>
+    <mantle.shipment.ShipmentBoxType shipmentBoxTypeId="UPS_Express_Legal_Envelope" description="UPS Express Legal Envelope"
+            dimensionUomId="LEN_in" boxLength="15.00" boxWidth="9.50" boxHeight="2.00" gatewayBoxId="UPS_Express_Legal_Envelope"/>
+    <mantle.shipment.ShipmentBoxType shipmentBoxTypeId="UPS_Express_Pak" description="UPS Express Pak"
+            dimensionUomId="LEN_in" boxLength="16.00" boxWidth="12.75" boxHeight="2.00" gatewayBoxId="UPS_Express_Pak"/>
+    <mantle.shipment.ShipmentBoxType shipmentBoxTypeId="UPS_Express_Tube" description="UPS Express Tube"
+            dimensionUomId="LEN_mm" boxLength="970.00" boxWidth="190.00" boxHeight="165.00" gatewayBoxId="UPS_Express_Tube"/>
+    <mantle.shipment.ShipmentBoxType shipmentBoxTypeId="UPS_Laboratory_Pak" description="UPS Laboratory Pak"
+            dimensionUomId="LEN_in" boxLength="17.25" boxWidth="12.75" boxHeight="2.00" gatewayBoxId="UPS_Laboratory_Pak"/>
+    <mantle.shipment.ShipmentBoxType shipmentBoxTypeId="UPS_Pad_Pak" description="UPS Pad Pak"
+            dimensionUomId="LEN_in" boxLength="14.75" boxWidth="11.00" boxHeight="2.00" gatewayBoxId="UPS_Pad_Pak"/>
+    <mantle.shipment.ShipmentBoxType shipmentBoxTypeId="UPS_Pallet" description="UPS Pallet"
+            dimensionUomId="LEN_cm" boxLength="120.00" boxWidth="80.00" boxHeight="200.00" gatewayBoxId="UPS_Pallet"/>
+    -->
 </entity-facade-xml>
