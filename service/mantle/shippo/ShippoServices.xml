@@ -189,6 +189,7 @@ along with this software (see the LICENSE.md file). If not, see
     </service>
     <service verb="get" noun="ShippingRatesBulk">
         <implements service="mantle.shipment.CarrierServices.get#ShippingRatesBulk"/>
+        <out-parameters><parameter name="rateInfoByServiceLevelByPackage" type="Map"/></out-parameters>
         <actions>
             <entity-find-one entity-name="mantle.shipment.carrier.ShippingGatewayOption" value-field="apiTokenOpt">
                 <field-map field-name="shippingGatewayConfigId"/><field-map field-name="optionEnumId" value="SgoApiToken"/></entity-find-one>
@@ -272,6 +273,7 @@ along with this software (see the LICENSE.md file). If not, see
             <!-- NOTE: because Shippo treats multiple parcels as a multi-piece shipment (only supported by UPS, FedEx?) do one call per package -->
             <!-- parcels -->
             <set field="requestMapList" from="[]"/>
+            <set field="requestPackageIdList" from="[]"/>
             <iterate list="packageInfoList" entry="packageInfo">
                 <!-- parcel -->
                 <entity-find-one entity-name="mantle.shipment.ShipmentBoxType" value-field="boxType">
@@ -303,7 +305,7 @@ along with this software (see the LICENSE.md file). If not, see
                     parcels:parcels, carrier_accounts:carrier_accounts, async:false, extra:[bypass_address_validation:true]]"/>
                 <!-- NOTE: any way to pass servicelevel_token(s) to limit in advance? for now just filtering after -->
 
-                <script>requestMapList.add(requestMap)</script>
+                <script>requestMapList.add(requestMap); requestPackageIdList.add(packageInfo.shipmentPackageSeqId)</script>
             </iterate>
             <if condition="!requestMapList"><set field="shippingRateInfoList" from="[]"/><return/></if>
 
@@ -325,6 +327,8 @@ along with this software (see the LICENSE.md file). If not, see
 
             <!-- iterate through Futures and get responses -->
             <set field="rateInfoByServiceLevel" from="[:]"/>
+            <set field="rateInfoByServiceLevelByPackage" from="[:]"/>
+            <set field="curFutureIndex" from="0"/>
             <iterate list="restClientFutureList" entry="restClientFuture">
                 <script><![CDATA[
                     org.moqui.util.RestClient.RestResponse restResponse = restClientFuture.get()
@@ -339,7 +343,7 @@ along with this software (see the LICENSE.md file). If not, see
                     responseMap = restResponse.jsonObject()
                 ]]></script>
 
-                <!-- <log level="warn" message="Shippo bulk rates response: ${responseMap}"/> -->
+                <!-- <log level="warn" message="Shippo bulk rates response: ${restResponse.text()}"/> -->
 
                 <!-- show messages -->
                 <if condition="responseMap.messages"><iterate list="responseMap.messages" entry="messageObj">
@@ -349,24 +353,53 @@ along with this software (see the LICENSE.md file). If not, see
                     <message>Shippo label status ${responseMap.status} for package</message></if>
 
                 <!-- find the rates matching the servicelevel_token -->
+                <!-- get the lowest rate per service level per package (ie per request) -->
+                <set field="curRateInfoByServiceLevel" from="[:]"/>
                 <iterate list="responseMap.rates" entry="rateMap">
                     <set field="serviceLevelToken" from="rateMap?.servicelevel?.token"/>
                     <if condition="!serviceLevelToken"><continue/></if>
                     <set field="carrierMethod" from="carrierMethodByServiceLevel.get(serviceLevelToken)"/>
                     <if condition="carrierMethod != null">
-                        <set field="rateInfo" from="rateInfoByServiceLevel.get(serviceLevelToken)"/>
+                        <set field="rateInfo" from="curRateInfoByServiceLevel.get(serviceLevelToken)"/>
                         <set field="rateAmount" from="rateMap.amount as BigDecimal"/>
-                        <if condition="rateInfo != null"><then>
-                            <set field="rateInfo.shippingTotal" from="rateInfo.shippingTotal + rateAmount"/>
-                        </then><else>
-                            <script>rateInfoByServiceLevel.put(serviceLevelToken, [carrierPartyId:carrierMethod.carrierPartyId,
+                        <!-- add a rate info Map if none found or current rateAmount is lower -->
+                        <if condition="rateInfo == null || rateAmount &lt; rateInfo.shippingTotal">
+                            <script>curRateInfoByServiceLevel.put(serviceLevelToken, [carrierPartyId:carrierMethod.carrierPartyId,
                                     shipmentMethodEnumId:carrierMethod.shipmentMethodEnumId, shippingTotal:rateAmount,
-                                    currency:rateMap.currency, days:rateMap.days, durationTerms:rateMap.duration_terms,
-                                    serviceName:rateMap.servicelevel.name, carrierImageUrl:rateMap.provider_image_75])</script>
-                        </else></if>
+                                    currency:rateMap.currency, days:rateMap.estimated_days, durationTerms:rateMap.duration_terms,
+                                    serviceName:rateMap.servicelevel.name, carrierImageUrl:rateMap.provider_image_75,
+                                    shippoObjectId:rateMap.object_id])</script>
+                        </if>
                     </if>
                 </iterate>
+
+                <!-- if we got a shipmentPackageSeqId also add to Map by package -->
+                <set field="shipmentPackageSeqId" from="requestPackageIdList.get(curFutureIndex)"/>
+                <script>if (shipmentPackageSeqId) rateInfoByServiceLevelByPackage.put(shipmentPackageSeqId, curRateInfoByServiceLevel)</script>
+                <set field="curFutureIndex" from="curFutureIndex + 1"/>
+
+                <!-- add lowest rate per package to the overall rate (only applicable for multiple packages) -->
+                <!-- ie merge curRateInfoByServiceLevel into rateInfoByServiceLevel by adding shippingTotal -->
+                <iterate list="curRateInfoByServiceLevel" entry="curRateInfo" key="serviceLevelToken">
+                    <set field="rateInfo" from="rateInfoByServiceLevel.get(serviceLevelToken)"/>
+                    <!-- <log level="info" message="${serviceLevelToken} cur ${curRateInfo}\n existing ${rateInfo}"/> -->
+                    <if condition="rateInfo != null"><then>
+                        <!-- use a clone of the rate info Map so original is not modified -->
+                        <set field="newRateInfo" from="new HashMap(rateInfo)"/>
+                        <set field="newRateInfo.shippingTotal" from="(newRateInfo.shippingTotal ?: 0.0) + (curRateInfo.shippingTotal ?: 0.0)"/>
+                        <script>newRateInfo.remove(shippoObjectId)</script>
+                        <script>rateInfoByServiceLevel.put(serviceLevelToken, newRateInfo)</script>
+                        <!-- <log level="info" message="${serviceLevelToken} new ${newRateInfo}"/> -->
+                    </then><else>
+                        <script>rateInfoByServiceLevel.put(serviceLevelToken, curRateInfo)</script>
+                    </else></if>
+                </iterate>
             </iterate>
+            <!--
+            <iterate list="rateInfoByServiceLevelByPackage" entry="logRateInfoByServiceLevel" key="logPackageSeqId">
+                <iterate list="logRateInfoByServiceLevel" entry="logRateInfo" key="logServiceLevel">
+                    <log level="warn" message="${logPackageSeqId}:${logServiceLevel}:${logRateInfo}"/></iterate></iterate>
+            -->
 
             <!-- the final list is the combined map values -->
             <set field="shippingRateInfoList" from="new ArrayList(rateInfoByServiceLevel.values())"/>
