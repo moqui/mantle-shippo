@@ -17,6 +17,7 @@ along with this software (see the LICENSE.md file). If not, see
     <!-- ========== Rate (Estimate) Services ========== -->
 
     <service verb="get" noun="OrderShippingRate">
+        <!-- see: https://goshippo.com/docs/reference#shipments -->
         <implements service="mantle.shipment.CarrierServices.get#OrderShippingRate"/>
         <actions>
             <entity-find-one entity-name="mantle.shipment.carrier.ShippingGatewayOption" value-field="apiTokenOpt">
@@ -188,6 +189,7 @@ along with this software (see the LICENSE.md file). If not, see
         </actions>
     </service>
     <service verb="get" noun="ShippingRatesBulk">
+        <!-- see: https://goshippo.com/docs/reference#shipments -->
         <implements service="mantle.shipment.CarrierServices.get#ShippingRatesBulk"/>
         <out-parameters><parameter name="rateInfoByServiceLevelByPackage" type="Map"/></out-parameters>
         <actions>
@@ -269,6 +271,11 @@ along with this software (see the LICENSE.md file). If not, see
                     <else><!-- <message>No Shippo service level code found for carrier ${carrierMethod.carrierPartyId} method ${carrierMethod.shipmentMethodEnumId}</message> --></else>
                 </if>
             </iterate>
+            <if condition="!carrierMethodByServiceLevel">
+                <!-- no point doing the Shippo request as we'll ignore all results -->
+                <set field="shippingRateInfoList" from="[]"/>
+                <return/>
+            </if>
 
             <!-- NOTE: because Shippo treats multiple parcels as a multi-piece shipment (only supported by UPS, FedEx?) do one call per package -->
             <!-- parcels -->
@@ -309,11 +316,33 @@ along with this software (see the LICENSE.md file). If not, see
             </iterate>
             <if condition="!requestMapList"><set field="shippingRateInfoList" from="[]"/><return/></if>
 
+            <!-- let request#ShipmentRateInfoInternal do the actual requests to Shippo and assemble the results -->
+            <service-call name="mantle.shippo.ShippoServices.request#ShipmentRateInfoInternal" in-map="context" out-map="context"/>
+        </actions>
+    </service>
+    <service verb="get" noun="ShippingRate">
+        <implements service="mantle.shipment.CarrierServices.get#ShippingRate"/>
+        <actions>
+            <!-- TODO FUTURE: get rate from Shippo and save ID, change request#ShippingLabels to do transaction based on rate if set -->
+        </actions>
+    </service>
+
+    <service verb="request" noun="ShipmentRateInfoInternal">
+        <in-parameters>
+            <parameter name="apiToken" required="true"/>
+            <parameter name="requestMapList" type="List" required="true"/>
+            <parameter name="requestPackageIdList" type="List"/>
+            <parameter name="carrierMethodByServiceLevel" type="Map" required="true"/>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="shippingRateInfoList" type="List"/>
+            <parameter name="rateInfoByServiceLevelByPackage" type="Map"/>
+        </out-parameters>
+        <actions>
             <!-- do HTTP requests async with a Future -->
             <set field="restClientFutureList" from="[]"/>
             <iterate list="requestMapList" entry="requestMap">
                 <!-- <log level="warn" message="Shippo bulk rates request:\n${requestMap}"/> -->
-
                 <script><![CDATA[
                     org.moqui.util.RestClient restClient = ec.service.rest().method(org.moqui.util.RestClient.POST)
                             .addHeader("Authorization", "ShippoToken ${apiToken}")
@@ -374,7 +403,7 @@ along with this software (see the LICENSE.md file). If not, see
                 </iterate>
 
                 <!-- if we got a shipmentPackageSeqId also add to Map by package -->
-                <set field="shipmentPackageSeqId" from="requestPackageIdList.get(curFutureIndex)"/>
+                <set field="shipmentPackageSeqId" from="requestPackageIdList?.get(curFutureIndex)"/>
                 <script>if (shipmentPackageSeqId) rateInfoByServiceLevelByPackage.put(shipmentPackageSeqId, curRateInfoByServiceLevel)</script>
                 <set field="curFutureIndex" from="curFutureIndex + 1"/>
 
@@ -405,69 +434,49 @@ along with this software (see the LICENSE.md file). If not, see
             <set field="shippingRateInfoList" from="new ArrayList(rateInfoByServiceLevel.values())"/>
         </actions>
     </service>
-    <service verb="get" noun="ShippingRate">
-        <implements service="mantle.shipment.CarrierServices.get#ShippingRate"/>
+    <service verb="make" noun="ShipmentInfo">
+        <in-parameters>
+            <parameter name="shipmentId" required="true"/>
+            <parameter name="shipmentRouteSegmentSeqId" required="true"/>
+            <parameter name="shippingGatewayConfigId" required="true"/>
+            <parameter name="shipment" type="EntityValue" required="true"/>
+            <parameter name="routeSegment" type="EntityValue" required="true"/>
+            <parameter name="shipmentMethodEnumId"/>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="productStoreId"/>
+            <parameter name="overrideName"/>
+            <parameter name="overrideCompany"/>
+
+            <parameter name="address_from" type="Object"/>
+            <parameter name="address_return" type="Object"/>
+            <parameter name="address_to" type="Object"/>
+            <parameter name="carrier_account"/>
+            <parameter name="servicelevel_token"/>
+        </out-parameters>
         <actions>
-            <!-- TODO FUTURE: get rate from Shippo and save ID, change request#ShippingLabels to do transaction based on rate if set -->
-        </actions>
-    </service>
-
-    <!-- ============================================= -->
-    <!-- ========== Shipping Label Services ========== -->
-    <!-- ============================================= -->
-
-    <service verb="request" noun="ShippingLabels">
-        <implements service="mantle.shipment.CarrierServices.request#ShippingLabels"/>
-        <actions>
-            <entity-find-one entity-name="mantle.shipment.carrier.ShippingGatewayOption" value-field="apiTokenOpt">
-                <field-map field-name="shippingGatewayConfigId"/><field-map field-name="optionEnumId" value="SgoApiToken"/></entity-find-one>
-            <set field="apiToken" from="apiTokenOpt?.optionValue"/>
-            <if condition="!apiToken"><log level="warn" message="Shipping gateway ${shippingGatewayConfigId} has no SgoApiToken, not requesting label"/><return/></if>
-
-            <entity-find-one entity-name="mantle.shipment.carrier.ShippingGatewayOption" value-field="labelTypeOpt">
-                <field-map field-name="shippingGatewayConfigId"/><field-map field-name="optionEnumId" value="SgoLabelType"/></entity-find-one>
-            <set field="label_file_type" from="labelTypeOpt?.optionValue ?: 'PDF'"/>
-
-            <!-- NOTE: lock on Shipment record -->
-            <entity-find-one entity-name="mantle.shipment.Shipment" value-field="shipment" for-update="true"/>
-            <if condition="shipment == null"><return error="true" message="Shipment not found with ID ${shipmentId}"/></if>
-            <entity-find-one entity-name="mantle.shipment.ShipmentRouteSegment" value-field="routeSegment"/>
-            <if condition="routeSegment == null"><return error="true" message="Shipment Route Segment not found with ID ${shipmentId}:${shipmentRouteSegmentSeqId}"/></if>
-
-            <set field="hasIssues" from="false"/>
             <set field="fromPartyId" from="shipment.fromPartyId"/>
-            <if condition="!fromPartyId"><set field="hasIssues" from="true"/>
-                <message type="danger">From party not set on shipment ${shipmentId}</message></if>
             <set field="toPartyId" from="shipment.toPartyId"/>
-            <if condition="!toPartyId"><set field="hasIssues" from="true"/>
-                <message type="danger">To party not set on shipment ${shipmentId}</message></if>
-
             <set field="carrierPartyId" from="routeSegment.carrierPartyId"/>
-            <if condition="!carrierPartyId || carrierPartyId == '_NA_'"><set field="hasIssues" from="true"/>
-                <message type="danger">Carrier not set on shipment ${shipmentId}:${shipmentRouteSegmentSeqId}</message></if>
             <set field="shipmentMethodEnumId" from="shipmentMethodEnumId ?: routeSegment.shipmentMethodEnumId"/>
-            <if condition="!shipmentMethodEnumId"><set field="hasIssues" from="true"/>
-                <message type="danger">Shipment method not set on shipment ${shipmentId}:${shipmentRouteSegmentSeqId}</message></if>
 
-            <if condition="hasIssues">
-                <message type="danger">Issues found, not requesting Shippo labels</message>
-                <return/>
-            </if>
-
-            <set field="productStoreId" from="null"/>
-            <entity-find entity-name="mantle.shipment.ShipmentItemSource" list="shipmentItemSourceList" distinct="true">
-                <econdition field-name="shipmentId"/><select-field field-name="orderId"/></entity-find>
-            <set field="orderIdSet" from="new HashSet(shipmentItemSourceList*.orderId)"/>
-            <if condition="orderIdSet">
-                <entity-find entity-name="mantle.order.OrderHeader" list="orderHeaderList" distinct="true">
-                    <econdition field-name="orderId" operator="in" from="orderIdSet"/>
-                    <econdition field-name="productStoreId" operator="is-not-null"/>
-                    <select-field field-name="productStoreId"/>
-                </entity-find>
-                <set field="productStoreIdSet" from="new HashSet(orderHeaderList*.productStoreId)"/>
-                <set field="productStoreId" from="productStoreIdSet ? productStoreIdSet.first() : null"/>
-                <if condition="productStoreIdSet.size() &gt; 1">
-                    <message type="warning">For shipment ${shipmentId} found multiple ProductStores ${productStoreIdSet}, using ${productStoreId}</message>
+            <!-- find a productStoreId -->
+            <set field="productStoreId" from="shipment.productStoreId"/>
+            <if condition="!productStoreId">
+                <entity-find entity-name="mantle.shipment.ShipmentItemSource" list="shipmentItemSourceList" distinct="true">
+                    <econdition field-name="shipmentId"/><select-field field-name="orderId"/></entity-find>
+                <set field="orderIdSet" from="new HashSet(shipmentItemSourceList*.orderId)"/>
+                <if condition="orderIdSet">
+                    <entity-find entity-name="mantle.order.OrderHeader" list="orderHeaderList" distinct="true">
+                        <econdition field-name="orderId" operator="in" from="orderIdSet"/>
+                        <econdition field-name="productStoreId" operator="is-not-null"/>
+                        <select-field field-name="productStoreId"/>
+                    </entity-find>
+                    <set field="productStoreIdSet" from="new HashSet(orderHeaderList*.productStoreId)"/>
+                    <set field="productStoreId" from="productStoreIdSet ? productStoreIdSet.first() : null"/>
+                    <if condition="productStoreIdSet.size() &gt; 1">
+                        <message type="warning">For shipment ${shipmentId} found multiple ProductStores ${productStoreIdSet}, using ${productStoreId}</message>
+                    </if>
                 </if>
             </if>
 
@@ -605,9 +614,186 @@ along with this software (see the LICENSE.md file). If not, see
             <entity-find-one entity-name="mantle.shipment.carrier.CarrierShipmentMethod" value-field="carrierShipmentMethod"/>
             <set field="servicelevel_token" from="carrierShipmentMethod?.gatewayServiceCode"/>
             <if condition="!servicelevel_token"><message error="true">No Shippo service level code found for carrier ${carrierPartyId} method ${shipmentMethodEnumId}</message></if>
+        </actions>
+    </service>
+    <service verb="make" noun="ShipmentPackageInfo">
+        <in-parameters>
+            <parameter name="packageRouteSeg" type="EntityValue" required="true"/>
+            <parameter name="routeSegment" type="EntityValue" required="true"/>
+            <parameter name="shipment" type="EntityValue" required="true"/>
+            <parameter name="getReturnLabels" type="Boolean" required="true"/>
 
-            <!-- check errors one last time before looping through packages -->
-            <check-errors/>
+            <parameter name="address_from" type="Object"/>
+            <parameter name="address_return" type="Object"/>
+            <parameter name="address_to" type="Object"/>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="skipPackage" type="Boolean"/>
+            <parameter name="parcel" type="Map"/>
+            <parameter name="extraMap" type="Map"/>
+            <parameter name="shipmentMap" type="Map"/>
+        </out-parameters>
+        <actions>
+            <set field="shipmentId" from="packageRouteSeg.shipmentId"/>
+            <set field="shipmentRouteSegmentSeqId" from="packageRouteSeg.shipmentRouteSegmentSeqId"/>
+            <set field="shipmentPackageSeqId" from="packageRouteSeg.shipmentPackageSeqId"/>
+
+            <set field="carrierPartyId" from="routeSegment.carrierPartyId"/>
+
+            <set field="skipPackage" from="false"/>
+            <set field="shipmentPackageSeqId" from="packageRouteSeg.shipmentPackageSeqId"/>
+            <if condition="getReturnLabels"><then>
+                <if condition="packageRouteSeg.returnGatewayLabelId || packageRouteSeg.returnLabelUrl">
+                    <message type="warning">Package ${shipmentPackageSeqId} in route segment ${shipmentRouteSegmentSeqId} already has return label ${packageRouteSeg.returnGatewayLabelId}, skipping package</message>
+                    <set field="skipPackage" from="true"/>
+                    <return/>
+                </if>
+            </then><else>
+                <if condition="packageRouteSeg.gatewayLabelId || packageRouteSeg.labelUrl">
+                    <message type="warning">Package ${shipmentPackageSeqId} in route segment ${shipmentRouteSegmentSeqId} already has label ${packageRouteSeg.gatewayLabelId}, skipping package</message>
+                    <set field="skipPackage" from="true"/>
+                    <return/>
+                </if>
+            </else></if>
+
+            <entity-find-one entity-name="mantle.shipment.ShipmentPackage" value-field="shipmentPackage"/>
+
+            <!-- parcel -->
+            <set field="boxType" from="shipmentPackage.boxType"/>
+            <if condition="boxType == null"><message type="warning">Package ${shipmentPackageSeqId} has no box type, skipping</message>
+                <set field="skipPackage" from="true"/><return/></if>
+
+            <set field="dimUom" from="boxType.dimensionUom"/>
+            <if condition="!boxType.boxLength || !boxType.boxWidth || !boxType.boxHeight || dimUom == null">
+                <message type="warning">Box type ${boxType.shipmentBoxTypeId} is missing dimensions (length, width, height) or dimension UOM, skipping package</message>
+                <set field="skipPackage" from="true"/><return/>
+            </if>
+            <set field="weightUom" from="shipmentPackage.weightUom ?: boxType.weightUom"/>
+            <set field="weight" from="shipmentPackage.weight ?: boxType.defaultGrossWeight"/>
+            <if condition="!weight || weightUom == null">
+                <message type="warning">Package ${shipmentPackageSeqId} box type ${boxType.shipmentBoxTypeId} is missing weight or weight UOM, skipping package</message>
+                <set field="skipPackage" from="true"/><return/>
+            </if>
+
+            <set field="distance_unit" from="dimUom.abbreviation"/>
+            <if condition="!(distance_unit in ['cm', 'in', 'ft', 'mm', 'm', 'yd'])">
+                <message type="warning">Package ${shipmentPackageSeqId} box type ${boxType.shipmentBoxTypeId} dimension unit is '${distance_unit}', must be one of: 'cm', 'in', 'ft', 'mm', 'm', 'yd'; skipping package</message>
+                <set field="skipPackage" from="true"/><return/>
+            </if>
+            <set field="mass_unit" from="weightUom.abbreviation"/>
+            <if condition="!(mass_unit in ['g', 'oz', 'lb', 'kg'])">
+                <message type="warning">Package ${shipmentPackageSeqId} box type ${boxType.shipmentBoxTypeId} weight unit is '${mass_unit}', must be one of: 'g', 'oz', 'lb', 'kg'; skipping package</message>
+                <set field="skipPackage" from="true"/><return/>
+            </if>
+
+            <set field="parcel" from="[length:boxType.boxLength, width:boxType.boxWidth, height:boxType.boxHeight,
+                            distance_unit:distance_unit, weight:weight, mass_unit:mass_unit, template:boxType.gatewayBoxId]"/>
+
+            <!-- reference_1 with Shipment, Order IDs -->
+            <set field="reference1" value="Shipment ${shipmentId}"/>
+            <entity-find entity-name="mantle.shipment.ShipmentItemSource" list="shipmentItemSourceList">
+                <econdition field-name="shipmentId"/><econdition field-name="orderId" operator="is-not-null"/>
+                <select-field field-name="orderId"/>
+            </entity-find>
+            <set field="orderIdSet" from="shipmentItemSourceList ? new TreeSet(shipmentItemSourceList*.orderId) : null"/>
+            <if condition="orderIdSet">
+                <!-- if any order has a displayId use that instead -->
+                <entity-find entity-name="mantle.order.OrderHeader" list="orderHeaderList">
+                    <econdition field-name="orderId" operator="in" from="orderIdSet"/>
+                    <econdition field-name="displayId" operator="is-not-null"/>
+                    <select-field field-name="orderId,displayId"/>
+                </entity-find>
+                <iterate list="orderHeaderList" entry="orderHeader">
+                    <script>if (orderHeader.displayId) { orderIdSet.remove(orderHeader.orderId); orderIdSet.add(orderHeader.displayId) }</script>
+                </iterate>
+                <set field="reference1" value="Order ${orderIdSet.join(', ')} ${reference1}"/>
+            </if>
+            <if condition="reference1.length() &gt; 50"><set field="reference1" from="reference1.substring(0, 50)"/></if>
+
+            <!-- reference_2 with otherPartyOrderId -->
+            <set field="reference2" value=""/>
+            <if condition="shipment.otherPartyOrderId"><set field="reference2" value="Your Order ${shipment.otherPartyOrderId}"/></if>
+
+            <!-- assemble the extra Map -->
+            <set field="extraMap" from="[reference_1:reference1, reference_2:reference2, bypass_address_validation:true, is_return:getReturnLabels]"/>
+            <!-- extra.signature_confirmation -->
+            <if condition="shipment.signatureRequiredEnumId &amp;&amp; shipment.signatureRequiredEnumId != 'PsrNone'">
+                <set field="signatureRequiredEnum" from="shipment.signatureRequiredEnum"/>
+                <if condition="signatureRequiredEnum?.enumCode"><then>
+                    <set field="extraMap.signature_confirmation" from="signatureRequiredEnum.enumCode"/>
+                </then><else>
+                    <message type="warning">Shipment ${shipmentId} has signatureRequiredEnumId ${shipment.signatureRequiredEnumId} and Enumeration has no enumCode, not setting Shippo extra.signature_confirmation</message>
+                </else></if>
+            </if>
+            <!-- extra.billing from ProductStoreShippingGateway -->
+            <if condition="productStoreId">
+                <entity-find-one entity-name="mantle.product.store.ProductStoreShippingGateway" value-field="pssg">
+                    <field-map field-name="productStoreId"/><field-map field-name="carrierPartyId"/></entity-find-one>
+                <if condition="pssg?.billingType">
+                    <set field="extraMap.billing" from="[type:pssg.billingType, account:pssg.billingAccount,
+                                zip:pssg.billingZip, country:pssg.billingCountry]"/>
+                </if>
+            </if>
+
+            <!-- assemble the shipment Map -->
+            <!-- NOTE: Shippo returns an error like 'The address_return may not be set when a return_of is specified' if address_return is used, so use address_return if there is one for address_from if getReturnLabels -->
+            <if condition="getReturnLabels"><then>
+                <if condition="address_return"><then>
+                    <set field="shipmentMap" from="[object_purpose:'PURCHASE', address_from:address_return, address_to:address_to, parcels:[parcel], extra:extraMap, async:false]"/>
+                </then><else>
+                    <set field="shipmentMap" from="[object_purpose:'PURCHASE', address_from:address_from, address_to:address_to, parcels:[parcel], extra:extraMap, async:false]"/>
+                </else></if>
+            </then><else>
+                <set field="shipmentMap" from="[object_purpose:'PURCHASE', address_from:address_from, address_to:address_to, parcels:[parcel], extra:extraMap, async:false]"/>
+                <if condition="address_return"><set field="shipmentMap.address_return" from="address_return"/></if>
+            </else></if>
+        </actions>
+    </service>
+
+    <!-- ============================================= -->
+    <!-- ========== Shipping Label Services ========== -->
+    <!-- ============================================= -->
+
+    <service verb="request" noun="ShippingLabels">
+        <!-- see: https://goshippo.com/docs/reference#transactions -->
+        <implements service="mantle.shipment.CarrierServices.request#ShippingLabels"/>
+        <actions>
+            <entity-find-one entity-name="mantle.shipment.carrier.ShippingGatewayOption" value-field="apiTokenOpt">
+                <field-map field-name="shippingGatewayConfigId"/><field-map field-name="optionEnumId" value="SgoApiToken"/></entity-find-one>
+            <set field="apiToken" from="apiTokenOpt?.optionValue"/>
+            <if condition="!apiToken"><log level="warn" message="Shipping gateway ${shippingGatewayConfigId} has no SgoApiToken, not requesting label"/><return/></if>
+
+            <entity-find-one entity-name="mantle.shipment.carrier.ShippingGatewayOption" value-field="labelTypeOpt">
+                <field-map field-name="shippingGatewayConfigId"/><field-map field-name="optionEnumId" value="SgoLabelType"/></entity-find-one>
+            <set field="label_file_type" from="labelTypeOpt?.optionValue ?: 'PDF'"/>
+
+            <!-- NOTE: lock on Shipment record -->
+            <entity-find-one entity-name="mantle.shipment.Shipment" value-field="shipment" for-update="true"/>
+            <if condition="shipment == null"><return error="true" message="Shipment not found with ID ${shipmentId}"/></if>
+            <entity-find-one entity-name="mantle.shipment.ShipmentRouteSegment" value-field="routeSegment"/>
+            <if condition="routeSegment == null"><return error="true" message="Shipment Route Segment not found with ID ${shipmentId}:${shipmentRouteSegmentSeqId}"/></if>
+
+            <set field="hasIssues" from="false"/>
+            <set field="fromPartyId" from="shipment.fromPartyId"/>
+            <if condition="!fromPartyId"><set field="hasIssues" from="true"/>
+                <message type="danger">From party not set on shipment ${shipmentId}</message></if>
+            <set field="toPartyId" from="shipment.toPartyId"/>
+            <if condition="!toPartyId"><set field="hasIssues" from="true"/>
+                <message type="danger">To party not set on shipment ${shipmentId}</message></if>
+
+            <set field="carrierPartyId" from="routeSegment.carrierPartyId"/>
+            <if condition="!carrierPartyId || carrierPartyId == '_NA_'"><set field="hasIssues" from="true"/>
+                <message type="danger">Carrier not set on shipment ${shipmentId}:${shipmentRouteSegmentSeqId}</message></if>
+            <set field="shipmentMethodEnumId" from="shipmentMethodEnumId ?: routeSegment.shipmentMethodEnumId"/>
+            <if condition="!shipmentMethodEnumId"><set field="hasIssues" from="true"/>
+                <message type="danger">Shipment method not set on shipment ${shipmentId}:${shipmentRouteSegmentSeqId}</message></if>
+
+            <if condition="hasIssues">
+                <message type="danger">Issues found, not requesting Shippo labels</message>
+                <return/>
+            </if>
+
+            <service-call name="mantle.shippo.ShippoServices.make#ShipmentInfo" in-map="context" out-map="context"/>
 
             <!-- the rest is per package -->
             <!-- TODO: multi-parcel shipments for UPS and FedEx only up to 10 parcels, see https://goshippo.com/docs/multipiece -->
@@ -615,105 +801,57 @@ along with this software (see the LICENSE.md file). If not, see
                 <econdition field-name="shipmentId"/><econdition field-name="shipmentRouteSegmentSeqId"/>
                 <econdition field-name="shipmentPackageSeqId" ignore-if-empty="true"/>
             </entity-find>
+
+            <!-- if FedEx get rates in separate calls and use the lowest price rate ID (for FedEx OneRate support, might apply to others in the future) -->
+            <!-- FUTURE: make this configurable for other carriers... and people using non-standard carrier parties with a different ID... -->
+            <set field="rateInfoOut" from="null"/>
+            <!-- for testing:  || 'USPS'.equalsIgnoreCase(carrierPartyId) -->
+            <if condition="'FedEx'.equalsIgnoreCase(carrierPartyId)"><then>
+                <set field="requestMapList" from="[]"/>
+                <set field="requestPackageIdList" from="[]"/>
+                <iterate list="packageRouteSegList" entry="packageRouteSeg">
+                    <service-call name="mantle.shippo.ShippoServices.make#ShipmentPackageInfo" in-map="context" out-map="pkgInfoOut" out-map-add-to-existing="false"/>
+                    <if condition="pkgInfoOut.skipPackage"><continue/></if>
+
+                    <!-- has address_from, address_to, parcels, extra, async -->
+                    <set field="requestMap" from="pkgInfoOut.shipmentMap"/>
+                    <set field="requestMap.carrier_accounts" from="[carrier_account]"/>
+
+                    <!-- populate requestMapList and requestPackageIdList -->
+                    <script>requestMapList.add(requestMap); requestPackageIdList.add(packageRouteSeg.shipmentPackageSeqId)</script>
+                </iterate>
+
+                <!-- let request#ShipmentRateInfoInternal do the actual requests to Shippo and assemble the results -->
+                <set field="carrierMethodByServiceLevel" from="[(servicelevel_token):[carrierPartyId:carrierPartyId, shipmentMethodEnumId:shipmentMethodEnumId]]"/>
+                <service-call name="mantle.shippo.ShippoServices.request#ShipmentRateInfoInternal" in-map="context" out-map="rateInfoOut"/>
+            </then></if>
+
+
+            <set field="restClientFutureList" from="new ArrayList()"/>
+            <set field="futurePackageRouteSegList" from="new ArrayList()"/>
             <iterate list="packageRouteSegList" entry="packageRouteSeg">
                 <set field="shipmentPackageSeqId" from="packageRouteSeg.shipmentPackageSeqId"/>
-                <if condition="getReturnLabels"><then>
-                    <if condition="packageRouteSeg.returnGatewayLabelId || packageRouteSeg.returnLabelUrl">
-                        <message>Package ${shipmentPackageSeqId} in route segment ${shipmentRouteSegmentSeqId} already has return label ${packageRouteSeg.returnGatewayLabelId}, skipping package</message>
-                        <continue/>
-                    </if>
-                </then><else>
-                    <if condition="packageRouteSeg.gatewayLabelId || packageRouteSeg.labelUrl">
-                        <message>Package ${shipmentPackageSeqId} in route segment ${shipmentRouteSegmentSeqId} already has label ${packageRouteSeg.gatewayLabelId}, skipping package</message>
-                        <continue/>
-                    </if>
-                </else></if>
-                <entity-find-one entity-name="mantle.shipment.ShipmentPackage" value-field="shipmentPackage"/>
+                <set field="requestMap" from="null"/>
 
-                <!-- parcel -->
-                <set field="boxType" from="shipmentPackage.boxType"/>
-                <if condition="boxType == null"><message>Package ${shipmentPackageSeqId} has no box type, skipping</message><continue/></if>
-
-                <set field="dimUom" from="boxType.dimensionUom"/>
-                <if condition="!boxType.boxLength || !boxType.boxWidth || !boxType.boxHeight || dimUom == null">
-                    <message>Box type ${boxType.shipmentBoxTypeId} is missing dimensions (length, width, height) or dimension UOM, skipping package</message><continue/></if>
-                <set field="weightUom" from="shipmentPackage.weightUom ?: boxType.weightUom"/>
-                <set field="weight" from="shipmentPackage.weight ?: boxType.defaultGrossWeight"/>
-                <if condition="!weight || weightUom == null">
-                    <message>Package ${shipmentPackageSeqId} box type ${boxType.shipmentBoxTypeId} is missing weight or weight UOM, skipping package</message><continue/></if>
-
-                <set field="distance_unit" from="dimUom.abbreviation"/>
-                <if condition="!(distance_unit in ['cm', 'in', 'ft', 'mm', 'm', 'yd'])">
-                    <message>Package ${shipmentPackageSeqId} box type ${boxType.shipmentBoxTypeId} dimension unit is '${distance_unit}', must be one of: 'cm', 'in', 'ft', 'mm', 'm', 'yd'; skipping package</message><continue/></if>
-                <set field="mass_unit" from="weightUom.abbreviation"/>
-                <if condition="!(mass_unit in ['g', 'oz', 'lb', 'kg'])">
-                    <message>Package ${shipmentPackageSeqId} box type ${boxType.shipmentBoxTypeId} weight unit is '${mass_unit}', must be one of: 'g', 'oz', 'lb', 'kg'; skipping package</message><continue/></if>
-
-                <set field="parcel" from="[length:boxType.boxLength, width:boxType.boxWidth, height:boxType.boxHeight,
-                            distance_unit:distance_unit, weight:weight, mass_unit:mass_unit, template:boxType.gatewayBoxId]"/>
-
-                <!-- reference_1 with Shipment, Order IDs -->
-                <set field="reference1" value="Shipment ${shipmentId}"/>
-                <entity-find entity-name="mantle.shipment.ShipmentItemSource" list="shipmentItemSourceList">
-                    <econdition field-name="shipmentId"/><econdition field-name="orderId" operator="is-not-null"/>
-                    <select-field field-name="orderId"/>
-                </entity-find>
-                <set field="orderIdSet" from="shipmentItemSourceList ? new TreeSet(shipmentItemSourceList*.orderId) : null"/>
-                <if condition="orderIdSet">
-                    <!-- if any order has a displayId use that instead -->
-                    <entity-find entity-name="mantle.order.OrderHeader" list="orderHeaderList">
-                        <econdition field-name="orderId" operator="in" from="orderIdSet"/>
-                        <econdition field-name="displayId" operator="is-not-null"/>
-                        <select-field field-name="orderId,displayId"/>
-                    </entity-find>
-                    <iterate list="orderHeaderList" entry="orderHeader">
-                        <script>if (orderHeader.displayId) { orderIdSet.remove(orderHeader.orderId); orderIdSet.add(orderHeader.displayId) }</script>
-                    </iterate>
-                    <set field="reference1" value="Order ${orderIdSet.join(', ')} ${reference1}"/>
-                </if>
-                <if condition="reference1.length() &gt; 50"><set field="reference1" from="reference1.substring(0, 50)"/></if>
-
-                <!-- reference_2 with otherPartyOrderId -->
-                <set field="reference2" value=""/>
-                <if condition="shipment.otherPartyOrderId"><set field="reference2" value="Your Order ${shipment.otherPartyOrderId}"/></if>
-
-                <!-- assemble the extra Map -->
-                <set field="extraMap" from="[reference_1:reference1, reference_2:reference2, bypass_address_validation:true, is_return:getReturnLabels]"/>
-                <!-- extra.signature_confirmation -->
-                <if condition="shipment.signatureRequiredEnumId &amp;&amp; shipment.signatureRequiredEnumId != 'PsrNone'">
-                    <set field="signatureRequiredEnum" from="shipment.signatureRequiredEnum"/>
-                    <if condition="signatureRequiredEnum?.enumCode"><then>
-                        <set field="extraMap.signature_confirmation" from="signatureRequiredEnum.enumCode"/>
+                <if condition="rateInfoOut != null">
+                    <set field="rateInfo" from="rateInfoOut.rateInfoByServiceLevelByPackage?.get(packageRouteSeg.shipmentPackageSeqId)?.get(servicelevel_token)"/>
+                    <if condition="rateInfo?.shippoObjectId"><then>
+                        <!-- see: https://goshippo.com/docs/reference#transactions-create -->
+                        <!-- if rates were retrieved use instead of shipment, carrier_account, and servicelevel_token -->
+                        <set field="requestMap" from="[rate:rateInfo.shippoObjectId, label_file_type:label_file_type, async:false]"/>
                     </then><else>
-                        <log level="warn" message="Shipment ${shipmentId} has signatureRequiredEnumId ${shipment.signatureRequiredEnumId} and Enumeration has no enumCode, not setting Shippo extra.signature_confirmation"/>
+                        <message type="danger">No rate info returned from Shippo for package ${packageRouteSeg.shipmentPackageSeqId} and service level ${servicelevel_token}, falling back to instant create</message>
                     </else></if>
                 </if>
-                <!-- extra.billing from ProductStoreShippingGateway -->
-                <if condition="productStoreId">
-                    <entity-find-one entity-name="mantle.product.store.ProductStoreShippingGateway" value-field="pssg">
-                        <field-map field-name="productStoreId"/><field-map field-name="carrierPartyId"/></entity-find-one>
-                    <if condition="pssg?.billingType">
-                        <set field="extraMap.billing" from="[type:pssg.billingType, account:pssg.billingAccount,
-                                zip:pssg.billingZip, country:pssg.billingCountry]"/>
-                    </if>
+
+                <if condition="requestMap == null">
+                    <!-- see: https://goshippo.com/docs/reference#transactions-create-instant -->
+                    <service-call name="mantle.shippo.ShippoServices.make#ShipmentPackageInfo" in-map="context" out-map="pkgInfoOut" out-map-add-to-existing="false"/>
+                    <if condition="pkgInfoOut.skipPackage"><continue/></if>
+
+                    <set field="requestMap" from="[shipment:pkgInfoOut.shipmentMap, carrier_account:carrier_account,
+                            servicelevel_token:servicelevel_token, label_file_type:label_file_type, async:false]"/>
                 </if>
-
-                <!-- assemble the shipment Map -->
-                <!-- NOTE: Shippo returns an error like 'The address_return may not be set when a return_of is specified' if address_return is used, so use address_return if there is one for address_from if getReturnLabels -->
-                <if condition="getReturnLabels"><then>
-                    <if condition="address_return"><then>
-                        <set field="shipmentMap" from="[object_purpose:'PURCHASE', address_from:address_return, address_to:address_to, parcels:[parcel], extra:extraMap]"/>
-                    </then><else>
-                        <set field="shipmentMap" from="[object_purpose:'PURCHASE', address_from:address_from, address_to:address_to, parcels:[parcel], extra:extraMap]"/>
-                    </else></if>
-                </then><else>
-                    <set field="shipmentMap" from="[object_purpose:'PURCHASE', address_from:address_from, address_to:address_to, parcels:[parcel], extra:extraMap]"/>
-                    <if condition="address_return"><set field="shipmentMap.address_return" from="address_return"/></if>
-                </else></if>
-
-                <!-- assemble the full request Map -->
-                <set field="requestMap" from="[shipment:shipmentMap, carrier_account:carrier_account,
-                        servicelevel_token:servicelevel_token, label_file_type:label_file_type, async:false]"/>
 
                 <!-- <log level="warn" message="Shippo transaction shipment ${shipmentId} package ${packageRouteSeg.shipmentPackageSeqId} request:\n${requestMap}"/> -->
 
@@ -723,7 +861,18 @@ along with this software (see the LICENSE.md file). If not, see
                             .addHeader("Shippo-API-Version", "2018-02-08")
                             .addHeader("Content-Type", "application/json").jsonObject(requestMap)
                     restClient.uri().protocol("https").host("api.goshippo.com").port(443).path("transactions").build()
-                    org.moqui.util.RestClient.RestResponse restResponse = restClient.call()
+                    restClientFutureList.add(restClient.callFuture())
+                    futurePackageRouteSegList.add(packageRouteSeg)
+                ]]></script>
+
+            </iterate>
+            <iterate list="restClientFutureList" entry="restClientFuture">
+                <set field="packageRouteSeg" from="futurePackageRouteSegList.get(restClientFuture_index)"/>
+                <set field="shipmentPackageSeqId" from="packageRouteSeg.shipmentPackageSeqId"/>
+                <set field="rateInfo" from="rateInfoOut != null ? rateInfoOut.rateInfoByServiceLevelByPackage?.get(packageRouteSeg.shipmentPackageSeqId)?.get(servicelevel_token) : null"/>
+
+                <script><![CDATA[
+                    org.moqui.util.RestClient.RestResponse restResponse = restClientFuture.get()
                     if (restResponse.statusCode < 200 || restResponse.statusCode >= 300) {
                         // based on code in Shippo Java client will return error message in plain text body
                         String errMsg = restResponse.text()
@@ -758,9 +907,9 @@ along with this software (see the LICENSE.md file). If not, see
                 <if condition="getReturnLabels"><then>
                     <set field="packageRouteSeg.returnGatewayStatus" from="responseMap.status"/>
                     <set field="packageRouteSeg.returnGatewayLabelId" from="responseMap.object_id"/>
-                    <set field="packageRouteSeg.returnGatewayRateId" from="responseMap.rate?.object_id"/>
-                    <set field="packageRouteSeg.returnEstimatedAmount" from="responseMap.rate?.amount as BigDecimal"/>
-                    <set field="packageRouteSeg.returnBaseAmount" from="responseMap.rate?.amount as BigDecimal"/>
+                    <set field="packageRouteSeg.returnGatewayRateId" from="rateInfo != null ? rateInfo.shippoObjectId : responseMap.rate?.object_id"/>
+                    <set field="packageRouteSeg.returnEstimatedAmount" from="rateInfo != null ? rateInfo.shippingTotal as BigDecimal : responseMap.rate?.amount as BigDecimal"/>
+                    <set field="packageRouteSeg.returnBaseAmount" from="packageRouteSeg.returnEstimatedAmount"/>
                     <set field="packageRouteSeg.returnTrackingStatusEnumId" value="ShTsUnknown"/>
                     <set field="packageRouteSeg.returnTrackingCode" from="responseMap.tracking_number"/>
                     <set field="packageRouteSeg.returnTrackingUrl" from="responseMap.tracking_url_provider"/>
@@ -769,9 +918,9 @@ along with this software (see the LICENSE.md file). If not, see
                 </then><else>
                     <set field="packageRouteSeg.gatewayStatus" from="responseMap.status"/>
                     <set field="packageRouteSeg.gatewayLabelId" from="responseMap.object_id"/>
-                    <set field="packageRouteSeg.gatewayRateId" from="responseMap.rate?.object_id"/>
-                    <set field="packageRouteSeg.estimatedAmount" from="responseMap.rate?.amount as BigDecimal"/>
-                    <set field="packageRouteSeg.baseAmount" from="responseMap.rate?.amount as BigDecimal"/>
+                    <set field="packageRouteSeg.gatewayRateId" from="rateInfo != null ? rateInfo.shippoObjectId : responseMap.rate?.object_id"/>
+                    <set field="packageRouteSeg.estimatedAmount" from="rateInfo != null ? rateInfo.shippingTotal as BigDecimal : responseMap.rate?.amount as BigDecimal"/>
+                    <set field="packageRouteSeg.baseAmount" from="packageRouteSeg.estimatedAmount"/>
                     <set field="packageRouteSeg.trackingStatusEnumId" value="ShTsUnknown"/>
                     <set field="packageRouteSeg.trackingCode" from="responseMap.tracking_number"/>
                     <set field="packageRouteSeg.trackingUrl" from="responseMap.tracking_url_provider"/>
