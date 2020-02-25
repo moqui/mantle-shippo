@@ -842,7 +842,7 @@ along with this software (see the LICENSE.md file). If not, see
                         <!-- if rates were retrieved use instead of shipment, carrier_account, and servicelevel_token -->
                         <set field="requestMap" from="[rate:rateInfo.shippoObjectId, label_file_type:label_file_type, async:false]"/>
                     </then><else>
-                        <message type="danger">No rate info returned from Shippo for package ${packageRouteSeg.shipmentPackageSeqId} and service level ${servicelevel_token}, falling back to instant create</message>
+                        <message type="danger">No rate info returned from Shippo for package ${shipmentId}:${packageRouteSeg.shipmentPackageSeqId} and service level ${servicelevel_token}, falling back to instant create</message>
                     </else></if>
                 </if>
 
