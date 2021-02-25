@@ -27,6 +27,7 @@ along with this software (see the LICENSE.md file). If not, see
 
             <if condition="!packageInfoList"><return message="No package info found, not getting Shippo shipping rates"/></if>
 
+            <entity-find-one entity-name="mantle.order.OrderHeader" value-field="orderHeader"/>
             <entity-find-one entity-name="mantle.order.OrderPart" value-field="orderPart"/>
 
             <set field="fromPartyId" from="orderPart.vendorPartyId"/>
@@ -126,6 +127,18 @@ along with this software (see the LICENSE.md file). If not, see
                 <set field="parcel" from="[length:boxType.boxLength, width:boxType.boxWidth, height:boxType.boxHeight,
                             distance_unit:distance_unit, weight:weight, mass_unit:mass_unit, template:boxType.gatewayBoxId]"/>
                 <set field="parcels" from="[parcel]"/>
+
+                <!-- add extra.insurance if applicable -->
+                <service-call name="mantle.shipment.CarrierServices.get#GeneralPackageRequiresInsurance" out-map="insuranceReqOut" out-map-add-to-existing="false"
+                        in-map="[quantityByProductId:packageInfo.quantityByProductId, currencyUomId:orderHeader.currencyUomId,
+                            productStoreId:orderHeader.productStoreId, vendorPartyId:orderPart.vendorPartyId]"/>
+                <if condition="insuranceReqOut.insuranceRequired &amp;&amp; insuranceReqOut.packageTotalCost">
+                    <!-- parcel.extra.insurance.amount, currency, provider, content -->
+                    <!-- FUTURE: support for provider field, initial implementation for Shippo's Shipsurance where no provider is specified
+                        see: https://goshippo.com/docs/insurance/?_ga=2.131195663.1849014295.1614148616-176427592.1614050676 -->
+                    <set field="parcel.extra" from="[insurance:[amount:insuranceReqOut.packageTotalCost, currency:currencyUomId,
+                            content:insuranceReqOut.contentDescription]]"/>
+                </if>
 
                 <!-- assemble the full request Map -->
                 <set field="requestMap" from="[address_from:address_from, address_to:address_to,
@@ -306,6 +319,19 @@ along with this software (see the LICENSE.md file). If not, see
                 <set field="parcel" from="[length:boxType.boxLength, width:boxType.boxWidth, height:boxType.boxHeight,
                             distance_unit:distance_unit, weight:weight, mass_unit:mass_unit, template:boxType.gatewayBoxId]"/>
                 <set field="parcels" from="[parcel]"/>
+
+                <!-- add extra.insurance if applicable -->
+                <service-call name="mantle.shipment.CarrierServices.get#GeneralPackageRequiresInsurance" out-map="insuranceReqOut" out-map-add-to-existing="false"
+                        in-map="[quantityByProductId:packageInfo.quantityByProductId, currencyUomId:currencyUomId,
+                            productStoreId:productStoreId, vendorPartyId:vendorPartyId]"/>
+                <log message="rates ${productStoreId} ${packageInfo.quantityByProductId} ${insuranceReqOut}"/>
+                <if condition="insuranceReqOut.insuranceRequired &amp;&amp; insuranceReqOut.packageTotalCost">
+                    <!-- parcel.extra.insurance.amount, currency, provider, content -->
+                    <!-- FUTURE: support for provider field, initial implementation for Shippo's Shipsurance where no provider is specified
+                        see: https://goshippo.com/docs/insurance/?_ga=2.131195663.1849014295.1614148616-176427592.1614050676 -->
+                    <set field="parcel.extra" from="[insurance:[amount:insuranceReqOut.packageTotalCost, currency:currencyUomId,
+                            content:insuranceReqOut.contentDescription]]"/>
+                </if>
 
                 <!-- assemble the full request Map -->
                 <set field="requestMap" from="[address_from:address_from, address_to:address_to,
@@ -633,6 +659,7 @@ along with this software (see the LICENSE.md file). If not, see
             <parameter name="parcel" type="Map"/>
             <parameter name="extraMap" type="Map"/>
             <parameter name="shipmentMap" type="Map"/>
+            <parameter name="insuredAmount" type="BigDecimal"/>
         </out-parameters>
         <actions>
             <set field="shipmentId" from="packageRouteSeg.shipmentId"/>
@@ -659,7 +686,8 @@ along with this software (see the LICENSE.md file). If not, see
 
             <entity-find-one entity-name="mantle.shipment.ShipmentPackage" value-field="shipmentPackage"/>
 
-            <!-- parcel -->
+            <!-- ===== Parcel Map ===== -->
+
             <set field="boxType" from="shipmentPackage.boxType"/>
             <if condition="boxType == null"><message type="warning">Package ${shipmentPackageSeqId} has no box type, skipping</message>
                 <set field="skipPackage" from="true"/><return/></if>
@@ -688,7 +716,21 @@ along with this software (see the LICENSE.md file). If not, see
             </if>
 
             <set field="parcel" from="[length:boxType.boxLength, width:boxType.boxWidth, height:boxType.boxHeight,
-                            distance_unit:distance_unit, weight:weight, mass_unit:mass_unit, template:boxType.gatewayBoxId]"/>
+                        distance_unit:distance_unit, weight:weight, mass_unit:mass_unit, template:boxType.gatewayBoxId]"/>
+
+            <!-- add parcel.extra.insurance if applicable -->
+            <service-call name="mantle.shipment.CarrierServices.get#ShipmentPackageRequiresInsurance" out-map="insuranceReqOut" out-map-add-to-existing="false"
+                    in-map="[shipmentId:shipmentId, shipmentPackageSeqId:shipmentPackageSeqId, shipment:shipment]"/>
+            <if condition="insuranceReqOut.insuranceRequired &amp;&amp; insuranceReqOut.packageTotalCost">
+                <set field="insuredAmount" from="insuranceReqOut.packageTotalCost"/>
+                <!-- parcel.extra.insurance.amount, currency, provider, content -->
+                <!-- FUTURE: support for provider field, initial implementation for Shippo's Shipsurance where no provider is specified
+                    see: https://goshippo.com/docs/insurance/?_ga=2.131195663.1849014295.1614148616-176427592.1614050676 -->
+                <set field="parcel.extra" from="[insurance:[amount:insuredAmount, currency:(shipment.costUomId ?: 'USD'),
+                    content:insuranceReqOut.contentDescription]]"/>
+            </if>
+
+            <!-- ===== Shipment Extra Map ===== -->
 
             <!-- reference_1 with Shipment, Order IDs -->
             <set field="reference1" value="Shipment ${shipmentId}"/>
@@ -804,16 +846,21 @@ along with this software (see the LICENSE.md file). If not, see
                 <econdition field-name="shipmentPackageSeqId" ignore-if-empty="true"/>
             </entity-find>
 
+            <set field="futureInsuredAmountList" from="new ArrayList()"/>
+
             <!-- if FedEx get rates in separate calls and use the lowest price rate ID (for FedEx OneRate support, might apply to others in the future) -->
             <!-- FUTURE: make this configurable for other carriers... and people using non-standard carrier parties with a different ID... -->
             <set field="rateInfoOut" from="null"/>
             <!-- for testing:  || 'USPS'.equalsIgnoreCase(carrierPartyId) -->
-            <if condition="'FedEx'.equalsIgnoreCase(carrierPartyId)"><then>
+            <if condition="'FedEx'.equalsIgnoreCase(carrierPartyId)">
                 <set field="requestMapList" from="[]"/>
                 <set field="requestPackageIdList" from="[]"/>
                 <iterate list="packageRouteSegList" entry="packageRouteSeg">
-                    <service-call name="mantle.shippo.ShippoServices.make#ShipmentPackageInfo" in-map="context" out-map="pkgInfoOut" out-map-add-to-existing="false"/>
+                    <service-call name="mantle.shippo.ShippoServices.make#ShipmentPackageInfo" in-map="context"
+                            out-map="pkgInfoOut" out-map-add-to-existing="false"/>
                     <if condition="pkgInfoOut.skipPackage"><continue/></if>
+                    <!-- always add an entry to futureInsuredAmountList, is parallel array to others -->
+                    <script>futureInsuredAmountList.add(pkgInfoOut.insuredAmount)</script>
 
                     <!-- has address_from, address_to, parcels, extra, async -->
                     <set field="requestMap" from="pkgInfoOut.shipmentMap"/>
@@ -826,7 +873,7 @@ along with this software (see the LICENSE.md file). If not, see
                 <!-- let request#ShipmentRateInfoInternal do the actual requests to Shippo and assemble the results -->
                 <set field="carrierMethodByServiceLevel" from="[(servicelevel_token):[carrierPartyId:carrierPartyId, shipmentMethodEnumId:shipmentMethodEnumId]]"/>
                 <service-call name="mantle.shippo.ShippoServices.request#ShipmentRateInfoInternal" in-map="context" out-map="rateInfoOut"/>
-            </then></if>
+            </if>
 
 
             <set field="restClientFutureList" from="new ArrayList()"/>
@@ -848,8 +895,11 @@ along with this software (see the LICENSE.md file). If not, see
 
                 <if condition="requestMap == null">
                     <!-- see: https://goshippo.com/docs/reference#transactions-create-instant -->
-                    <service-call name="mantle.shippo.ShippoServices.make#ShipmentPackageInfo" in-map="context" out-map="pkgInfoOut" out-map-add-to-existing="false"/>
+                    <service-call name="mantle.shippo.ShippoServices.make#ShipmentPackageInfo" in-map="context"
+                            out-map="pkgInfoOut" out-map-add-to-existing="false"/>
                     <if condition="pkgInfoOut.skipPackage"><continue/></if>
+                    <!-- always add an entry to futureInsuredAmountList, is parallel array to others -->
+                    <script>futureInsuredAmountList.add(pkgInfoOut.insuredAmount)</script>
 
                     <set field="requestMap" from="[shipment:pkgInfoOut.shipmentMap, carrier_account:carrier_account,
                             servicelevel_token:servicelevel_token, label_file_type:label_file_type, async:false]"/>
@@ -928,6 +978,17 @@ along with this software (see the LICENSE.md file). If not, see
                     <set field="packageRouteSeg.trackingUrl" from="responseMap.tracking_url_provider"/>
                     <set field="packageRouteSeg.labelDate" from="ec.l10n.parseTimestamp(responseMap.object_created, 'yyyy-MM-dd\'T\'HH:mm:ss.SSSZ')"/>
                     <set field="packageRouteSeg.labelUrl" from="responseMap.label_url"/>
+
+                    <set field="insuredAmount" from="futureInsuredAmountList.get(restClientFuture_index)"/>
+                    <if condition="insuredAmount">
+                        <entity-find-one entity-name="mantle.product.store.ProductStoreShippingGateway" value-field="pssg">
+                            <field-map field-name="productStoreId"/><field-map field-name="carrierPartyId"/></entity-find-one>
+                        <set field="packageRouteSeg.insuredAmount" from="insuredAmount"/>
+                        <if condition="pssg?.insurancePercent">
+                            <set field="packageRouteSeg.insuranceAmount"
+                                    from="new BigDecimal(pssg.insurancePercent).multiply(insuredAmount).divide(100.0, 2, BigDecimal.ROUND_HALF_UP)"/>
+                        </if>
+                    </if>
                 </else></if>
                 <entity-update value-field="packageRouteSeg"/>
 
