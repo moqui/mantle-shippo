@@ -1251,7 +1251,7 @@ along with this software (see the LICENSE.md file). If not, see
                 org.moqui.util.RestClient restClient = ec.service.rest().method(org.moqui.util.RestClient.POST)
                         .addHeader("Authorization", "ShippoToken ${apiToken}")
                         .addHeader("Shippo-API-Version", "2018-02-08")
-                        .addHeader("Content-Type", "application/json").jsonObject(addressMap)
+                        .jsonObject(addressMap)
                 restClient.uri().protocol("https").host("api.goshippo.com").port(443).path("addresses").build()
                 org.moqui.util.RestClient.RestResponse restResponse = restClient.call()
                 if (restResponse.statusCode < 200 || restResponse.statusCode >= 300) {
