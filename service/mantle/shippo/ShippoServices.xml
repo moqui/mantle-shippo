@@ -152,7 +152,7 @@ along with this software (see the LICENSE.md file). If not, see
                             .addHeader("Authorization", "ShippoToken ${apiToken}")
                             .addHeader("Shippo-API-Version", "2018-02-08")
                             .addHeader("Content-Type", "application/json").jsonObject(requestMap)
-                            .retry()
+                            .retry(1.0F,2)
                     restClient.uri().protocol("https").host("api.goshippo.com").port(443).path("shipments").build()
                     org.moqui.util.RestClient.RestResponse restResponse = restClient.call()
                     if (restResponse.statusCode < 200 || restResponse.statusCode >= 300) {
@@ -375,7 +375,7 @@ along with this software (see the LICENSE.md file). If not, see
                             .addHeader("Authorization", "ShippoToken ${apiToken}")
                             .addHeader("Shippo-API-Version", "2018-02-08")
                             .addHeader("Content-Type", "application/json").jsonObject(requestMap)
-                            .retry()
+                            .retry(1.0F,2)
                     restClient.uri().protocol("https").host("api.goshippo.com").port(443).path("shipments").build()
 
                     restClientFutureList.add(restClient.callFuture())
@@ -914,7 +914,7 @@ along with this software (see the LICENSE.md file). If not, see
                             .addHeader("Authorization", "ShippoToken ${apiToken}")
                             .addHeader("Shippo-API-Version", "2018-02-08")
                             .addHeader("Content-Type", "application/json").jsonObject(requestMap)
-                            .retry()
+                            .retry(1.0F,2)
                     restClient.uri().protocol("https").host("api.goshippo.com").port(443).path("transactions").build()
                     restClientFutureList.add(restClient.callFuture())
                     futurePackageRouteSegList.add(packageRouteSeg)
@@ -1025,7 +1025,7 @@ along with this software (see the LICENSE.md file). If not, see
                             .addHeader("Authorization", "ShippoToken ${apiToken}")
                             .addHeader("Shippo-API-Version", "2018-02-08")
                             .addHeader("Content-Type", "application/json").jsonObject(requestMap)
-                            .retry()
+                            .retry(1.0F,2)
                     restClient.uri().protocol("https").host("api.goshippo.com").port(443).path("refunds").build()
                     org.moqui.util.RestClient.RestResponse restResponse = restClient.call()
                     if (restResponse.statusCode < 200 || restResponse.statusCode >= 300) {
@@ -1074,7 +1074,7 @@ along with this software (see the LICENSE.md file). If not, see
                             .addHeader("Authorization", "ShippoToken ${apiToken}")
                             .addHeader("Shippo-API-Version", "2018-02-08")
                             .addHeader("Content-Type", "application/json")
-                            .retry()
+                            .retry(1.0F,2)
                     restClient.uri().protocol("https").host("api.goshippo.com").port(443).path("transactions").path((String) packageRouteSeg.gatewayLabelId).build()
                     org.moqui.util.RestClient.RestResponse restResponse = restClient.call()
                     if (restResponse.statusCode < 200 || restResponse.statusCode >= 300) {
@@ -1257,7 +1257,7 @@ along with this software (see the LICENSE.md file). If not, see
                         .addHeader("Authorization", "ShippoToken ${apiToken}")
                         .addHeader("Shippo-API-Version", "2018-02-08")
                         .addHeader("Content-Type", "application/json").jsonObject(addressMap)
-                        .retry()
+                        .retry(1.0F,2)
                 restClient.uri().protocol("https").host("api.goshippo.com").port(443).path("addresses").build()
                 org.moqui.util.RestClient.RestResponse restResponse = restClient.call()
                 if (restResponse.statusCode < 200 || restResponse.statusCode >= 300) {
