@@ -1459,4 +1459,195 @@ along with this software (see the LICENSE.md file). If not, see
                 phone:phone, email:email]"/>
         </actions>
     </service>
+
+    <!-- ================================================== -->
+    <!-- ========== Order Serialization Services ========== -->
+    <!-- ================================================== -->
+    <service verb="send" noun="OrderToShippo">
+        <in-parameters>
+            <parameter name="orderId" required="true"/>
+        </in-parameters>
+        <out-parameters>
+
+        </out-parameters>
+        <actions>
+            <log level="warn" message="send#OrderToShippo context.toString() = ${context.toString()}"/>
+
+            <entity-find entity-name="mantle.order.OrderPart" list="orderPartList">
+                <econdition field-name="orderId"/>
+                <order-by field-name="orderPartSeqId"/>
+            </entity-find>
+            <iterate list="orderPartList" entry="orderPart">
+                <service-call name="mantle.shippo.ShippoServices.send#OrderPartToShippo" in-map="[orderId:orderId, orderPart:orderPart]"/>
+            </iterate>
+
+        </actions>
+    </service>
+    <service verb="send" noun="OrderPartToShippo">
+        <in-parameters>
+            <parameter name="orderId" required="true"/>
+            <parameter name="orderPart" required="true" type="Map"/>
+        </in-parameters>
+        <out-parameters>
+
+        </out-parameters>
+        <actions>
+            <log level="warn" message="send#OrderPartToShippo context.toString() = ${context.toString()}"/>
+
+            <entity-find-one entity-name="mantle.order.OrderHeader" value-field="orderHeader" auto-field-map="[orderId:orderId]"/>
+
+            <set field="customerPartyId" from="orderPart.customerPartyId"/>
+            <entity-find entity-name="mantle.order.OrderPartPartyDetail" list="orderPartPartyList" >
+                <econdition field-name="orderId" from="orderPart.orderId"/>
+                <econdition field-name="orderPartSeqId" from="orderPart.orderPartSeqId"/>
+                <econdition field-name="roleTypeId" value="CustomerShipTo"/>
+                <order-by field-name="description"/>
+            </entity-find>
+            <set field="customerShipToPartyId" from="orderPartPartyList.getFirst()?.partyId ?: orderPart.customerPartyId"/>
+
+            <!-- get addresses for customer, ship-to customer -->
+            <set field="shippingPostalAddressList" from="new ArrayList()"/>
+            <set field="customerShipPartyIdSet" from="new TreeSet()"/>
+            <script>if (customerPartyId) customerShipPartyIdSet.add(customerPartyId)</script>
+            <script>if (customerShipToPartyId) customerShipPartyIdSet.add(customerShipToPartyId)</script>
+            <iterate list="customerShipPartyIdSet" entry="curPartyId">
+                <!-- addresses on profile -->
+                <service-call name="mantle.party.ContactServices.get#PartyContactInfoList" out-map="customerShippingInfo"
+                        in-map="[partyId:curPartyId, postalContactMechPurposeId:'PostalShippingDest']"/>
+                <script>shippingPostalAddressList.addAll(customerShippingInfo.postalAddressList ?: [])</script>
+                <!-- addresses on owned facilities -->
+                <entity-find entity-name="mantle.facility.Facility" list="curFacList">
+                    <econdition field-name="ownerPartyId" from="curPartyId"/></entity-find>
+                <iterate list="curFacList" entry="curFac">
+                    <service-call name="mantle.facility.ContactServices.get#FacilityContactInfo" out-map="facContactInfo" out-map-add-to-existing="false"
+                            in-map="[facilityId:curFac.facilityId, postalContactMechPurposeId:'PostalPrimary',
+                                telecomContactMechPurposeId:'PhonePrimary', emailContactMechPurposeId:'EmailPrimary']"/>
+                    <if condition="facContactInfo.postalContactMech"><script>shippingPostalAddressList.add(facContactInfo)</script></if>
+                </iterate>
+            </iterate>
+            <!-- if address set on OrderPart that isn't in list yet, add it (could be expired, etc) -->
+            <if condition="customerPartyId &amp;&amp; orderPart.postalContactMechId &amp;&amp; !(orderPart.postalContactMechId in shippingPostalAddressList*.postalContactMechId)">
+                <service-call name="mantle.party.ContactServices.get#PartyContactInfo" out-map="curPaInfo"
+                        in-map="[partyId:customerPartyId, postalContactMechId:orderPart.postalContactMechId]"/>
+                <script>shippingPostalAddressList.add(0, curPaInfo)</script>
+            </if>
+            <!-- trim duplicates and replaced/valid from shippingPostalAddressList -->
+            <script><![CDATA[
+                Set replacedPostalIdSet = new HashSet()
+                for (int i=0; i < shippingPostalAddressList.size(); i++) {
+                    String replAddressId = shippingPostalAddressList.get(i).postalContactMech?.replacesContactMechId
+                    if (replAddressId && !replAddressId.equals(orderPart.postalContactMechId)) replacedPostalIdSet.add(replAddressId)
+                }
+                Set shippingPostalIdSet = new HashSet()
+                for (int i=0; i < shippingPostalAddressList.size(); ) {
+                    String curAddressId = shippingPostalAddressList.get(i).postalContactMechId
+                    if (shippingPostalIdSet.contains(curAddressId) || replacedPostalIdSet.contains(curAddressId)) { shippingPostalAddressList.remove(i) }
+                    else { shippingPostalIdSet.add(curAddressId); i++ }
+                }
+                ]]></script>
+            <set field="shippingAddressInfo" from="orderPart.postalContactMechId ? shippingPostalAddressList.find({ orderPart.postalContactMechId.equals(it.postalContactMechId) }) : null"/>
+
+            <set field="contactMechId" from="shippingAddressInfo.postalContactMechId"/>
+
+            <if condition="!contactMechId"><return error="true" message="No valid shipping address found on order ${orderId} for party ${customerPartyId}"/></if>
+
+            <set field="origContactMechId" from="contactMechId"/>
+            <entity-find-one entity-name="mantle.party.contact.ContactMech" value-field="contactMech"/>
+            <entity-find-one entity-name="mantle.party.contact.PostalAddress" value-field="postalAddress"/>
+            <if condition="postalAddress == null"><return/></if>
+
+            <!-- Find necessary data for sending order -->
+            <if condition="!orderPart.facilityId"><return message="Facility not set on order part ${orderId}:${orderPart.orderPartSeqId}"/></if>
+            <service-call name="mantle.facility.ContactServices.get#FacilityDefaultShipOrigin" out-map="facOriginOut"
+                    in-map="[facilityId:orderPart.facilityId]"/>
+            <if condition="!facOriginOut.postalContactMechId"><return message="Facility ${orderPart.facilityId} on order part ${orderId}:${orderPart.orderPartSeqId} has no ship origin address"/></if>
+            <entity-find-one entity-name="mantle.party.contact.PostalAddress" value-field="originPostalAddress">
+                <field-map field-name="contactMechId" from="facOriginOut.postalContactMechId"/></entity-find-one>
+            <if condition="!originPostalAddress.shipGatewayAddressId">
+                <service-call name="mantle.shippo.ShippoServices.validate#PostalAddress" out-map="fromValidateOut"
+                        in-map="[contactMechId:facOriginOut.postalContactMechId, partyId:fromPartyId, facilityId:orderPart.facilityId,
+                            shippingGatewayConfigId:shippingGatewayConfigId]"/>
+                <entity-find-one entity-name="mantle.party.contact.PostalAddress" value-field="originPostalAddress">
+                    <field-map field-name="contactMechId" from="fromValidateOut.contactMechId"/></entity-find-one>
+            </if>
+
+            <entity-find-one entity-name="mantle.party.contact.ContactMech" value-field="originContactMech">
+                <field-map field-name="contactMechId" from="originPostalAddress.contactMechId"/></entity-find-one>
+            <if condition="originPostalAddress.shipGatewayAddressId &amp;&amp; originContactMech.trustLevelEnumId in ['CmtlValid', 'CmtlVerified']"><then>
+                <set field="address_from" from="originPostalAddress.shipGatewayAddressId"/>
+            </then><else>
+                <service-call name="mantle.shippo.ShippoServices.get#AddressMap" out-map="originAddrOut"
+                        in-map="[postalAddress:originPostalAddress, partyId:fromPartyId, isOrigin:true]"/>
+                <set field="address_from" from="originAddrOut.addressMap"/>
+            </else></if>
+
+            <if condition="postalAddress.shipGatewayAddressId &amp;&amp; contactMech.trustLevelEnumId in ['CmtlValid', 'CmtlVerified']"><then>
+                <set field="address_to" from="postalAddress.shipGatewayAddressId"/>
+            </then><else>
+                <service-call name="mantle.shippo.ShippoServices.get#AddressMap" out-map="originAddrOut"
+                        in-map="[postalAddress:postalAddress, partyId:customerPartyId, isOrigin:true]"/>
+                <set field="address_to" from="originAddrOut.addressMap"/>
+            </else></if>
+
+            <if condition="!shippingGatewayConfigId &amp;&amp; partyId">
+                <!-- if Party has ownerPartId lookup setting there -->
+                <entity-find-one entity-name="mantle.party.Party" value-field="party"/>
+                <if condition="party?.ownerPartyId">
+                    <service-call name="mantle.party.PartyServices.get#PartySettingValue" out-map="ptySettingOut"
+                            in-map="[partyId:party.ownerPartyId, partySettingTypeId:'ValidateAddressGatewayConfigId']"/>
+                    <set field="shippingGatewayConfigId" from="ptySettingOut?.settingValue"/>
+                </if>
+            </if>
+            <if condition="!shippingGatewayConfigId">
+                <set field="shippingGatewayConfigId" from="ec.user.getPreference('ValidateAddressGatewayConfigId')"/></if>
+            <if condition="!shippingGatewayConfigId"><return/></if>
+            <entity-find-one entity-name="mantle.shipment.carrier.ShippingGatewayConfig" value-field="shippingGatewayConfig"/>
+            <if condition="shippingGatewayConfig == null">
+                <log level="error" message="No ShippingGatewayConfig found with ID ${shippingGatewayConfigId}, not validating address"/>
+                <return/>
+            </if>
+
+            <entity-find-one entity-name="mantle.shipment.carrier.ShippingGatewayOption" value-field="apiTokenOpt">
+                <field-map field-name="shippingGatewayConfigId"/><field-map field-name="optionEnumId" value="SgoApiToken"/></entity-find-one>
+            <set field="apiToken" from="apiTokenOpt?.optionValue"/>
+            <if condition="!apiToken"><log level="warn" message="Shipping gateway ${shippingGatewayConfigId} has no SgoApiToken, not getting rates"/><return/></if>
+
+            <!-- assemble the full request Map -->
+            <set field="requestMap" from="[from_address:address_from, to_address:address_to,
+                    placed_at:java.time.format.DateTimeFormatter.ISO_INSTANT.format(orderHeader.placedDate.toInstant()),
+                    weight:'0.40',weight_unit:'lb']"/>
+            <!-- NOTE: any way to pass servicelevel_token(s) to limit in advance? for now just filtering after -->
+
+             <log level="warn" message="Shippo rate order ${orderId} request:\n${requestMap}"/>
+
+            <script><![CDATA[
+                org.moqui.util.RestClient restClient = ec.service.rest().method(org.moqui.util.RestClient.POST)
+                        .addHeader("Authorization", "ShippoToken ${apiToken}")
+                        .addHeader("Shippo-API-Version", "2018-02-08")
+                        .addHeader("Content-Type", "application/json").jsonObject(requestMap)
+                        .retry(1.0F,2)
+                restClient.uri().protocol("https").host("api.goshippo.com").port(443).path("orders").build()
+                org.moqui.util.RestClient.RestResponse restResponse = restClient.call()
+                if (restResponse.statusCode < 200 || restResponse.statusCode >= 300) {
+                    // based on code in Shippo Java client will return error message in plain text body
+                    String errMsg = restResponse.text()
+                    ec.logger.error("Shippo error response (${restResponse.statusCode}): ${errMsg}")
+                    ec.message.addMessage("Shippo API error")
+                    ec.message.addMessage(errMsg)
+                    return
+                }
+                responseMap = restResponse.jsonObject()
+                ]]></script>
+
+             <log level="warn" message="Shippo rate order ${orderId} response: ${responseMap}"/>
+
+            <!-- show messages -->
+            <if condition="responseMap.messages"><iterate list="responseMap.messages" entry="messageObj">
+                <message>(${messageObj.source}:${messageObj.code}) ${messageObj.text}</message></iterate></if>
+
+            <if condition="responseMap.status != 'SUCCESS'"><message>Shippo rate status ${responseMap.status} for package</message></if>
+
+        </actions>
+    </service>
+
 </services>
