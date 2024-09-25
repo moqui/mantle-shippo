@@ -20,4 +20,9 @@ along with this software (see the LICENSE.md file). If not, see
         <!-- Webhook path: /rest/s1/shippo/track -->
         <method type="post"><service name="mantle.shippo.ShippoServices.update#PackageTrack"/></method>
     </resource>
+
+    <resource name="receive" require-authentication="anonymous-all">
+        <!-- Webhook path: /rest/s1/shippo/receive -->
+        <method type="post"><service name="mantle.shippo.ShippoServices.receive#OrderShipmentTransaction"/></method>
+    </resource>
 </resource>
