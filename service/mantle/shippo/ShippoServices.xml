@@ -877,7 +877,6 @@ along with this software (see the LICENSE.md file). If not, see
                 <service-call name="mantle.shippo.ShippoServices.request#ShipmentRateInfoInternal" in-map="context" out-map="rateInfoOut"/>
             </if>
 
-
             <set field="restClientFutureList" from="new ArrayList()"/>
             <set field="futurePackageRouteSegList" from="new ArrayList()"/>
             <iterate list="packageRouteSegList" entry="packageRouteSeg">
@@ -905,6 +904,18 @@ along with this software (see the LICENSE.md file). If not, see
 
                     <set field="requestMap" from="[shipment:pkgInfoOut.shipmentMap, carrier_account:carrier_account,
                             servicelevel_token:servicelevel_token, label_file_type:label_file_type, async:false]"/>
+                </if>
+
+                <entity-find entity-name="mantle.shipment.ShipmentItemSource" list="shipmentItemSourceList">
+                    <econdition field-name="shipmentId"/></entity-find>
+                <set field="orderIdList" from="shipmentItemSourceList*.orderId.unique()"/>
+                <!-- If there is only one order associated with the shipment that has a shippo externalId, send it to shippo to correlate the orders -->
+                <if condition="orderIdList.size() == 1">
+                    <entity-find-one entity-name="mantle.order.OrderHeader" value-field="orderHeader">
+                        <field-map field-name="orderId" from="orderIdList[0]"/></entity-find-one>
+                    <if condition="orderHeader.externalId">
+                        <set field="requestMap.order" from="orderHeader.externalId"/>
+                    </if>
                 </if>
 
                 <log level="info" message="Shippo transaction shipment ${shipmentId} package ${packageRouteSeg.shipmentPackageSeqId} request:\n${requestMap}"/>
@@ -1471,8 +1482,6 @@ along with this software (see the LICENSE.md file). If not, see
 
         </out-parameters>
         <actions>
-            <log level="warn" message="send#OrderToShippo context.toString() = ${context.toString()}"/>
-
             <entity-find entity-name="mantle.order.OrderPart" list="orderPartList">
                 <econdition field-name="orderId"/>
                 <order-by field-name="orderPartSeqId"/>
@@ -1480,7 +1489,6 @@ along with this software (see the LICENSE.md file). If not, see
             <iterate list="orderPartList" entry="orderPart">
                 <service-call name="mantle.shippo.ShippoServices.send#OrderPartToShippo" in-map="[orderId:orderId, orderPart:orderPart]"/>
             </iterate>
-
         </actions>
     </service>
     <service verb="send" noun="OrderPartToShippo">
@@ -1489,12 +1497,13 @@ along with this software (see the LICENSE.md file). If not, see
             <parameter name="orderPart" required="true" type="Map"/>
         </in-parameters>
         <out-parameters>
-
+            <parameter name="orderId"/>
+            <parameter name="orderPart" type="Map"/>
         </out-parameters>
         <actions>
-            <log level="warn" message="send#OrderPartToShippo context.toString() = ${context.toString()}"/>
+            <entity-find-one entity-name="mantle.order.OrderHeader" value-field="orderHeader" auto-field-map="[orderId:orderId]" for-update="true"/>
 
-            <entity-find-one entity-name="mantle.order.OrderHeader" value-field="orderHeader" auto-field-map="[orderId:orderId]"/>
+            <if condition="!orderPart.orderPartSeqId"><return error="true" message="No orderPartSeqId in orderPart"/></if>
 
             <set field="customerPartyId" from="orderPart.customerPartyId"/>
             <entity-find entity-name="mantle.order.OrderPartPartyDetail" list="orderPartPartyList" >
@@ -1575,10 +1584,18 @@ along with this software (see the LICENSE.md file). If not, see
                 <field-map field-name="contactMechId" from="originPostalAddress.contactMechId"/></entity-find-one>
             <if condition="originPostalAddress.shipGatewayAddressId &amp;&amp; originContactMech.trustLevelEnumId in ['CmtlValid', 'CmtlVerified']"><then>
                 <set field="address_from" from="originPostalAddress.shipGatewayAddressId"/>
+                <set field="facilityPostalAddress" from="originContactMech?.postalAddress"/>
+                <set field="facilityTelecomNumberEntity" from="facilityPostalAddress?.telecomContactMech?.telecomNumber"/>
+                <set field="facilityTelecomNumber" from="facilityTelecomNumberEntity?.countryCode+facilityTelecomNumberEntity?.areaCode+facilityTelecomNumberEntity?.contactNumber"/>
+                <set field="facilityEmail" from="facilityPostalAddress?.emailContactMech?.infoString"/>
+                <!-- This prevents confusing error messages on Shippo for UPS requiring an email and telecom number -->
+                <if condition="!facilityEmail || !facilityTelecomNumber"><return message="Facility ${orderPart.facilityId} with contact mech ${originPostalAddress.contactMechId} on order part ${orderId}:${orderPart.orderPartSeqId} has no phone or email (1)"/></if>
             </then><else>
                 <service-call name="mantle.shippo.ShippoServices.get#AddressMap" out-map="originAddrOut"
                         in-map="[postalAddress:originPostalAddress, partyId:fromPartyId, isOrigin:true]"/>
                 <set field="address_from" from="originAddrOut.addressMap"/>
+                <!-- This prevents confusing error messages on Shippo for UPS requiring an email and telecom number -->
+                <if condition="!address_from.phone || !address_from.email"><return message="Facility ${orderPart.facilityId} with contact mech ${originPostalAddress.contactMechId} on order part ${orderId}:${orderPart.orderPartSeqId} has no phone or email (2)"/></if>
             </else></if>
 
             <if condition="postalAddress.shipGatewayAddressId &amp;&amp; contactMech.trustLevelEnumId in ['CmtlValid', 'CmtlVerified']"><then>
@@ -1612,13 +1629,33 @@ along with this software (see the LICENSE.md file). If not, see
             <set field="apiToken" from="apiTokenOpt?.optionValue"/>
             <if condition="!apiToken"><log level="warn" message="Shipping gateway ${shippingGatewayConfigId} has no SgoApiToken, not getting rates"/><return/></if>
 
+            <set field="line_items" from="[]"/>
+            <entity-find entity-name="mantle.order.OrderItem" list="orderItemList">
+                <econdition field-name="orderId"/>
+                <econdition field-name="orderPartSeqId" from="orderPart.orderPartSeqId"/>
+                <order-by field-name="orderItemSeqId"/>
+            </entity-find>
+            <iterate list="orderItemList" entry="orderItem">
+                <entity-find entity-name="mantle.product.ProductUomDimension" list="dimensionList">
+                    <econdition field-name="productId" from="orderItem.productId"/>
+                    <econdition field-name="uomDimensionTypeId" value="Weight"/>
+                    <econdition field-name="uomId" value="WT_lb"/>
+                    <econdition field-name="marketSegmentId" operator="is-null"/>
+                    <order-by field-name="-lastUpdatedStamp"/>
+                </entity-find>
+                <if condition="dimensionList.size() == 0 || !dimensionList.getFirst().value">
+                    <return error="true" message="No weight in pounds found for product ${orderItem.productId} in order ${orderId}:${orderPart.orderPartSeqId}:${orderItem.orderItemSeqId}. Please go to /qapps/marble/Catalog/Product/EditProduct?productId=${orderItem.productId} and set a weight in pounds for a UOM Dimension."/>
+                </if>
+                <set field="line_items" from="line_items + [quantity:orderItem.quantity, price:orderItem.unitAmount,
+                    title:orderItem.itemDescription, total_price:orderItem.quantity*orderItem.unitAmount,sku:orderItem.productId,
+                    currency:orderItem?.price?.priceUom?.abbreviation,weight:dimensionList.getFirst().value,weight_unit:'lb']"/>
+            </iterate>
+
             <!-- assemble the full request Map -->
             <set field="requestMap" from="[from_address:address_from, to_address:address_to,
                     placed_at:java.time.format.DateTimeFormatter.ISO_INSTANT.format(orderHeader.placedDate.toInstant()),
-                    weight:'0.40',weight_unit:'lb']"/>
+                    weight:line_items*.weight.sum(),weight_unit:'lb',order_number:orderId+':'+orderPart.orderPartSeqId,line_items:line_items]"/>
             <!-- NOTE: any way to pass servicelevel_token(s) to limit in advance? for now just filtering after -->
-
-             <log level="warn" message="Shippo rate order ${orderId} request:\n${requestMap}"/>
 
             <script><![CDATA[
                 org.moqui.util.RestClient restClient = ec.service.rest().method(org.moqui.util.RestClient.POST)
@@ -1639,15 +1676,150 @@ along with this software (see the LICENSE.md file). If not, see
                 responseMap = restResponse.jsonObject()
                 ]]></script>
 
-             <log level="warn" message="Shippo rate order ${orderId} response: ${responseMap}"/>
+            <if condition="!responseMap.object_id"><message>Shippo order id not found. Shippo response is ${responseMap}</message></if>
 
-            <!-- show messages -->
-            <if condition="responseMap.messages"><iterate list="responseMap.messages" entry="messageObj">
-                <message>(${messageObj.source}:${messageObj.code}) ${messageObj.text}</message></iterate></if>
+            <log level="warn" message="Shippo rate order ${orderId} response: ${responseMap}"/>
 
-            <if condition="responseMap.status != 'SUCCESS'"><message>Shippo rate status ${responseMap.status} for package</message></if>
 
+            <entity-find-one entity-name="mantle.order.OrderPart" value-field="orderPart" auto-field-map="[orderId:orderId, orderPartSeqId:orderPart.orderPartSeqId]" for-update="true"/>
+            <if condition="!orderPart.trackingNumber">
+                <!-- TODO: Should the trackingNumber be used or should another field be added to store the order in shippo? -->
+                <set field="orderPart.trackingNumber" from="responseMap.object_id"/>
+                <entity-update value-field="orderPart"/>
+                <else><log level="warn" message="order ${orderId} already has an external id ${orderPart.trackingNumber}. Not updating new trackingNumber ${responseMap.object_id} from Shippo"/></else>
+            </if>
         </actions>
     </service>
 
+    <service verb="receive" noun="OrderShipmentTransaction">
+        <description>Mounted as a REST API endpoint to receive Shippo Webhook calls</description>
+        <!-- See: https://goshippo.com/docs/webhooks and https://docs.goshippo.com/docs/tracking/webhooks/#setting-up-and-testing-webhooks -->
+        <!-- Webhook path (see shippo.rest.xml): /rest/s1/shippo/receive -->
+        <!-- Local test:
+        curl -X POST -H "Content-Type: application/json" \
+             -d '{"event":"transaction_created","test":true,"data":{"object_state":"VALID","status":"SUCCESS","object_created":"2024-09-25T02:16:36.000Z","object_updated":"2024-09-25T02:16:36.000Z","object_id":"70ae8117ee1749e393f249d5b77c45e0","object_owner":"superstupidshippo@acetousk.com","test":true,"rate":"5a8c481569b9498f8290a974eae250ee","tracking_number":"ZW70QJC","tracking_status":"UNKNOWN","eta":"2024-09-30T02:16:36.023Z","tracking_url_provider":"https://tools.usps.com/go/TrackConfirmAction_input?origTrackNum=ZW70QJC","label_url":"https://shippo-delivery.s3.amazonaws.com/70ae8117ee1749e393f249d5b77c45e0.pdf?Signature=vDw1ltcyGveVR1OQoUDdzC43BY8%3D&Expires=1437093830&AWSAccessKeyId=AKIAJTHP3LLFMYAWALIA","commercial_invoice_url":"","messages":[],"order":"9f1ec448f6a74e5888a26f162cfb8b57","metadata":"Shippo test webhook","parcel":"0851447713974a2c9a3187c8b19e2782","billing":{"payments":[]}}}' \
+             http://localhost:8080/rest/s1/shippo/receive
+        -->
+        <in-parameters>
+            <parameter name="event"/>
+            <parameter name="test"/>
+            <parameter name="data" type="Map">
+                <parameter name="commercial_invoice_url"/>
+                <parameter name="created_by" type="Object"/>
+                <parameter name="eta"/>
+                <parameter name="label_file_type"/>
+                <parameter name="label_url"/>
+                <parameter name="messages" type="List"/>
+                <parameter name="metadata"/>
+                <parameter name="object_created"/>
+                <parameter name="object_id"/>
+                <parameter name="object_owner"/>
+                <parameter name="object_state"/>
+                <parameter name="object_updated"/>
+                <parameter name="parcel"/>
+                <parameter name="qr_code_url"/>
+                <parameter name="rate"/>
+                <parameter name="status"/>
+                <parameter name="test"/>
+                <parameter name="tracking_number"/>
+                <parameter name="tracking_status"/>
+                <parameter name="tracking_url_provider"/>
+                <parameter name="order"/>
+            </parameter>
+        </in-parameters>
+        <actions>
+            <log level="warn" message="Got Shippo transaction_created webhook call with: ${context.toString()}"/>
+
+            <!-- Consider data.order to be a security measure to ensure the webhook is correct -->
+            <if condition="!data.order"><return type="danger" error="true" message="No order ID in Shippo webhook data"/></if>
+            <entity-find entity-name="mantle.order.OrderPart" list="orderPartList">
+                <econdition field-name="trackingNumber" from="data.order"/>
+                <order-by field-name="-lastUpdatedStamp"/>
+            </entity-find>
+            <if condition="!orderPartList"><return type="danger" error="true" message="No order found with externalId ${data.order}"/></if>
+            <set field="orderPart" from="orderPartList.getFirst()"/>
+
+            <!-- TODO: Check to see if a shipment with the trackingId has been created just in case to make this idempotent -->
+
+            <!-- Otherwise shipment has not been created, but to be tracked it needs to be created and associated with the order -->
+            <if condition="!data.parcel"><return type="danger" error="true" message="No parcel ID in Shippo webhook data"/></if>
+
+            <if condition="!shippingGatewayConfigId">
+                <set field="shippingGatewayConfigId" from="ec.user.getPreference('DefaultShipmentGatewayConfigId')"/></if>
+            <if condition="!shippingGatewayConfigId &amp;&amp; orderPart.customerPartyId">
+                <!-- if order is a purchase order -->
+                <entity-find-count entity-name="mantle.party.PartyRole" count-field="partyRoleCount">
+                    <econdition field-name="partyId" from="orderPart.customerPartyId"/><econdition field-name="roleTypeId" value="OrgInternal"/></entity-find-count>
+                <if condition="partyRoleCount &gt; 0">
+                    <service-call name="mantle.party.PartyServices.get#PartySettingValue" out-map="ptySettingOut"
+                            in-map="[partyId:orderPart.customerPartyId, partySettingTypeId:'DefaultShipmentGatewayConfigId']"/>
+                    <set field="shippingGatewayConfigId" from="ptySettingOut?.settingValue"/>
+                </if>
+            </if>
+            <if condition="!shippingGatewayConfigId"><return/></if>
+            <entity-find-one entity-name="mantle.shipment.carrier.ShippingGatewayConfig" value-field="shippingGatewayConfig"/>
+            <if condition="shippingGatewayConfig == null">
+                <log level="error" message="No ShippingGatewayConfig found with ID ${shippingGatewayConfigId}, not getting parcel"/>
+                <return/>
+            </if>
+
+            <entity-find-one entity-name="mantle.shipment.carrier.ShippingGatewayOption" value-field="apiTokenOpt">
+                <field-map field-name="shippingGatewayConfigId"/><field-map field-name="optionEnumId" value="SgoApiToken"/></entity-find-one>
+            <set field="apiToken" from="apiTokenOpt?.optionValue"/>
+            <if condition="!apiToken"><log level="warn" message="Shipping gateway ${shippingGatewayConfigId} has no SgoApiToken, not getting parcel"/><return/></if>
+
+            <script><![CDATA[
+                org.moqui.util.RestClient restClient = ec.service.rest().method(org.moqui.util.RestClient.GET)
+                        .addHeader("Authorization", "ShippoToken ${apiToken}")
+                        .addHeader("Shippo-API-Version", "2018-02-08")
+                        .addHeader("Content-Type", "application/json")
+                        .retry(1.0F,2)
+                restClient.uri().protocol("https").host("api.goshippo.com").port(443).path("parcels/"+data.parcel).build()
+                org.moqui.util.RestClient.RestResponse restResponse = restClient.call()
+                if (restResponse.statusCode < 200 || restResponse.statusCode >= 300) {
+                    // based on code in Shippo Java client will return error message in plain text body
+                    String errMsg = restResponse.text()
+                    ec.logger.error("Shippo error response (${restResponse.statusCode}): ${errMsg}")
+                    ec.message.addMessage("Shippo API error")
+                    ec.message.addMessage(errMsg)
+                    return
+                }
+                responseMap = restResponse.jsonObject()
+                ]]></script>
+
+            <log level="warn" message="Shippo parcel ${data.parcel} response: ${responseMap}"/>
+
+            <entity-find entity-name="mantle.order.OrderPartParty" list="orderPartPartyList">
+                <econdition field-name="orderId" from="orderPart.orderId"/>
+                <econdition field-name="orderPartSeqId" from="orderPart.orderPartSeqId"/>
+                <econdition field-name="roleTypeId" value="CustomerShipTo"/>
+                <order-by field-name="-lastUpdatedStamp"/></entity-find>
+            <set field="customerShipToPartyId" from="orderPartPartyList.getFirst()?.partyId?:orderPart.customerPartyId"/>
+
+            <!-- can't use mantle.shipment.ShipmentServices.create#OrderPartShipment because we're creating a dropship shipment and it doesn't handle that -->
+
+            <service-call name="mantle.shipment.ShipmentServices.create#OrderPartShipment" out-map="outboundShipment"
+                    in-map="[orderId:orderPart.orderId, orderPartSeqId:orderPart.orderPartSeqId]" />
+
+            <!-- ignore parcel line_items, assume all the items are in the shipment -->
+            <if condition="outboundShipment.shipmentId">
+                <set field="shipmentId" from="outboundShipment.shipmentId"/>
+                <entity-find entity-name="mantle.order.OrderItem" list="orderItemList">
+                    <econdition field-name="orderId" from="orderPart.orderId"/>
+                    <econdition field-name="orderPartSeqId" from="orderPart.orderPartSeqId"/>
+                    <order-by field-name="orderItemSeqId"/>
+                </entity-find>
+                <if condition="!orderItemList"><log level="warn" message="No order items found for order ${orderPart.orderId}:${orderPart.orderPartSeqId}"/></if>
+                <script>context.shipmentPackageSeqIdList = [] as Set</script>
+                <iterate list="orderItemList" entry="orderItem">
+                    <service-call name="mantle.shipment.ShipmentServices.add#ItemToPackage" out-map="context"
+                            in-map="[shipmentId:shipmentId, productId:orderItem.productId, quantity:orderItem.quantity]"/>
+                    <set field="shipmentPackageSeqIdList" from="shipmentPackageSeqIdList + [shipmentPackageSeqId]"/>
+                </iterate>
+                <log level="warn" message="shipmentPackageSeqIdList = ${shipmentPackageSeqIdList}"/>
+                <if condition="shipmentPackageSeqIdList.size() == 0"><log level="warn" message="No shipment packages created for order ${orderPart.orderId}:${orderPart.orderPartSeqId}"/></if>
+            </if>
+
+        </actions>
+    </service>
 </services>
