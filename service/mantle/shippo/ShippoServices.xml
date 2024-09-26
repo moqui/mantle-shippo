@@ -1683,8 +1683,7 @@ along with this software (see the LICENSE.md file). If not, see
 
             <if condition="!responseMap.object_id"><message>Shippo order id not found. Shippo response is ${responseMap}</message></if>
 
-            <log level="warn" message="Shippo rate order ${orderId} response: ${responseMap}"/>
-
+<!--            <log level="warn" message="Shippo rate order ${orderId} response: ${responseMap}"/>-->
 
             <entity-find-one entity-name="mantle.order.OrderPart" value-field="orderPart" auto-field-map="[orderId:orderId, orderPartSeqId:orderPart.orderPartSeqId]" for-update="true"/>
             <if condition="!orderPart.trackingNumber">
