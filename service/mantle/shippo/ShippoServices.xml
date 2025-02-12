@@ -1573,6 +1573,19 @@ along with this software (see the LICENSE.md file). If not, see
             <entity-find-one entity-name="mantle.party.contact.PostalAddress" value-field="postalAddress"/>
             <if condition="postalAddress == null"><return/></if>
 
+            <if condition="!shippingGatewayConfigId &amp;&amp; partyId">
+                <!-- if Party has ownerPartId lookup setting there -->
+                <entity-find-one entity-name="mantle.party.Party" value-field="party"/>
+                <if condition="party?.ownerPartyId">
+                    <service-call name="mantle.party.PartyServices.get#PartySettingValue" out-map="ptySettingOut"
+                            in-map="[partyId:party.ownerPartyId, partySettingTypeId:'ValidateAddressGatewayConfigId']"/>
+                    <set field="shippingGatewayConfigId" from="ptySettingOut?.settingValue"/>
+                </if>
+            </if>
+            <if condition="!shippingGatewayConfigId">
+                <set field="shippingGatewayConfigId" from="ec.user.getPreference('ValidateAddressGatewayConfigId')"/></if>
+            <if condition="!shippingGatewayConfigId"><return/></if>
+
             <!-- Find necessary data for sending order -->
             <if condition="!orderPart.facilityId"><return message="Facility not set on order part ${orderId}:${orderPart.orderPartSeqId}"/></if>
             <service-call name="mantle.facility.ContactServices.get#FacilityDefaultShipOrigin" out-map="facOriginOut"
@@ -1594,7 +1607,9 @@ along with this software (see the LICENSE.md file). If not, see
                 <set field="address_from" from="originPostalAddress.shipGatewayAddressId"/>
                 <set field="facilityPostalAddress" from="originContactMech?.postalAddress"/>
                 <set field="facilityTelecomNumberEntity" from="facilityPostalAddress?.telecomContactMech?.telecomNumber"/>
-                <set field="facilityTelecomNumber" from="facilityTelecomNumberEntity?.countryCode+facilityTelecomNumberEntity?.areaCode+facilityTelecomNumberEntity?.contactNumber"/>
+                <if condition="facilityTelecomNumberEntity?.countryCode &amp;&amp; facilityTelecomNumberEntity?.areaCode &amp;&amp; facilityTelecomNumberEntity?.contactNumber">
+                    <set field="facilityTelecomNumber" from="facilityTelecomNumberEntity.countryCode+facilityTelecomNumberEntity.areaCode+facilityTelecomNumberEntity.contactNumber"/>
+                </if>
                 <set field="facilityEmail" from="facilityPostalAddress?.emailContactMech?.infoString"/>
                 <!-- This prevents confusing error messages on Shippo for UPS requiring an email and telecom number -->
                 <if condition="!facilityEmail || !facilityTelecomNumber"><return message="Facility ${orderPart.facilityId} with contact mech ${originPostalAddress.contactMechId} on order part ${orderId}:${orderPart.orderPartSeqId} has no phone or email (1)"/></if>
@@ -1614,18 +1629,6 @@ along with this software (see the LICENSE.md file). If not, see
                 <set field="address_to" from="originAddrOut.addressMap"/>
             </else></if>
 
-            <if condition="!shippingGatewayConfigId &amp;&amp; partyId">
-                <!-- if Party has ownerPartId lookup setting there -->
-                <entity-find-one entity-name="mantle.party.Party" value-field="party"/>
-                <if condition="party?.ownerPartyId">
-                    <service-call name="mantle.party.PartyServices.get#PartySettingValue" out-map="ptySettingOut"
-                            in-map="[partyId:party.ownerPartyId, partySettingTypeId:'ValidateAddressGatewayConfigId']"/>
-                    <set field="shippingGatewayConfigId" from="ptySettingOut?.settingValue"/>
-                </if>
-            </if>
-            <if condition="!shippingGatewayConfigId">
-                <set field="shippingGatewayConfigId" from="ec.user.getPreference('ValidateAddressGatewayConfigId')"/></if>
-            <if condition="!shippingGatewayConfigId"><return/></if>
             <entity-find-one entity-name="mantle.shipment.carrier.ShippingGatewayConfig" value-field="shippingGatewayConfig"/>
             <if condition="shippingGatewayConfig == null">
                 <log level="error" message="No ShippingGatewayConfig found with ID ${shippingGatewayConfigId}, not validating address"/>
