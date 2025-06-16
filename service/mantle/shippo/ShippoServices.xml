@@ -1484,6 +1484,7 @@ along with this software (see the LICENSE.md file). If not, see
             <parameter name="orderId" required="true"/>
             <parameter name="notes"/>
             <!-- TODO: have a notes field map for every orderPartSeqId -->
+            <parameter name="sendLineItems" default="false" type="Boolean"/>
         </in-parameters>
         <out-parameters>
 
@@ -1494,7 +1495,7 @@ along with this software (see the LICENSE.md file). If not, see
                 <order-by field-name="orderPartSeqId"/>
             </entity-find>
             <iterate list="orderPartList" entry="orderPart">
-                <service-call name="mantle.shippo.ShippoServices.send#OrderPartToShippo" in-map="[orderId:orderId, orderPart:orderPart, notes:notes]"/>
+                <service-call name="mantle.shippo.ShippoServices.send#OrderPartToShippo" in-map="[orderId:orderId, orderPart:orderPart, notes:notes, sendLineItems:sendLineItems]"/>
             </iterate>
         </actions>
     </service>
@@ -1503,6 +1504,7 @@ along with this software (see the LICENSE.md file). If not, see
             <parameter name="orderId" required="true"/>
             <parameter name="orderPart" required="true" type="Map"/>
             <parameter name="notes"/>
+            <parameter name="sendLineItems" default="false" type="Boolean"/>
         </in-parameters>
         <out-parameters>
             <parameter name="orderId"/>
@@ -1663,11 +1665,17 @@ along with this software (see the LICENSE.md file). If not, see
                     weight:new BigDecimal(dimensionList.getFirst().value).setScale(2, java.math.RoundingMode.UP),weight_unit:'lb']"/>
             </iterate>
 
+            <set field="weight" from="line_items*.weight.sum()"/>
+            <if condition="sendLineItems == null || sendLineItems == false">
+                <set field="line_items" from="null"/>
+            </if>
+
             <!-- assemble the full request Map -->
             <set field="requestMap" from="[from_address:address_from, to_address:address_to,
                     placed_at:java.time.format.DateTimeFormatter.ISO_INSTANT.format(orderHeader.placedDate.toInstant()),
-                    weight:line_items*.weight.sum(),weight_unit:'lb',order_number:orderId+':'+orderPart.orderPartSeqId,line_items:line_items]"/>
+                    weight:weight,weight_unit:'lb',order_number:orderId+':'+orderPart.orderPartSeqId]"/>
             <if condition="notes"><set field="requestMap.notes" from="notes"/></if>
+            <if condition="line_items"><set field="requestMap.line_items" from="line_items"/></if>
             <!-- NOTE: any way to pass servicelevel_token(s) to limit in advance? for now just filtering after -->
 
             <script><![CDATA[
